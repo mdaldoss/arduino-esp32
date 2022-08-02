@@ -578,6 +578,10 @@ static void esp_bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
                 log_i("ESP_BT_GAP_READ_REMOTE_NAME_EVT: no success stat:%d", param->read_rmt_name.stat);
             }
             break;
+        
+        case ESP_BT_GAP_READ_RSSI_DELTA_EVT:
+            log_i("ESP_BT_GAP_READ_RSSI_DELTA_EVT: %s", param->read_rssi_delta);
+        
 
         case ESP_BT_GAP_MODE_CHG_EVT:
             log_i("ESP_BT_GAP_MODE_CHG_EVT: mode: %d", param->mode_chg.mode);
@@ -776,6 +780,22 @@ static bool waitForSDPRecord(int timeout) {
     return (xEventGroupWaitBits(_bt_event_group, BT_SDP_COMPLETED, pdFALSE, pdTRUE, xTicksToWait) & BT_SDP_COMPLETED) != 0;
 }
 
+int bt_getRSSI(char* address){
+    int cnt = scanResults.getCount();
+    int rssi = 0;
+    BTAdvertisedDevice* dev;
+        for (int i=0; i < cnt; i++) {
+			dev = scanResults.getDevice(i);
+			if (dev && strcmp(address, dev->getAddress().toString().c_str()))
+            {      
+                rssi = dev->getRSSI();
+            }
+		}
+
+    //esp_bt_gap_read_rssi_delta(_peer_bd_addr);
+	return rssi;
+}
+
 /*
  * Serial Bluetooth Arduino
  *
@@ -825,9 +845,15 @@ bool BluetoothSerial::hasClient(void)
     return _spp_client > 0;
 }
 
+int BluetoothSerial::getRSSI(){
+    char address[18];
+    sprintf(address, "%02x:%02x:%02x:%02x:%02x:%02x", _peer_bd_addr[0],_peer_bd_addr[1],_peer_bd_addr[2],_peer_bd_addr[3],_peer_bd_addr[4],_peer_bd_addr[5]);
+    return bt_getRSSI(address);
+}
+
+
 int BluetoothSerial::read()
 {
-
     uint8_t c = 0;
     if (_spp_rx_queue && xQueueReceive(_spp_rx_queue, &c, this->timeoutTicks)){
         return c;
