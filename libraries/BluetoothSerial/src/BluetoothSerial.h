@@ -77,7 +77,8 @@ class BluetoothSerial: public Stream
         void discoverAsyncStop();
         void discoverClear();
         BTScanResults* getScanResults();
-        
+        int getRSSI();
+
         std::map<int, std::string> getChannels(const BTAddress &remoteAddress);
 
         const int INQ_TIME = 1280;   // Inquire Time unit 1280 ms
@@ -88,6 +89,7 @@ class BluetoothSerial: public Stream
     private:
         String local_name;
         int timeoutTicks=0;
+        
 };
 
 #endif
