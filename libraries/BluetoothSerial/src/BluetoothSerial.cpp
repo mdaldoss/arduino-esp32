@@ -64,18 +64,20 @@ static AuthCompleteCb auth_complete_callback = NULL;
 #define INQ_NUM_RSPS 20
 #define READY_TIMEOUT (10 * 1000)
 #define SCAN_TIMEOUT (INQ_LEN * 2 * 1000)
-static esp_bd_addr_t _peer_bd_addr;
-static char _remote_name[ESP_BT_GAP_MAX_BDNAME_LEN + 1];
-static bool _isRemoteAddressSet;
+
+// static esp_bd_addr_t _peer_bd_addr;
+// static char _remote_name[ESP_BT_GAP_MAX_BDNAME_LEN + 1];
+// static bool _isRemoteAddressSet;
+// static bool _isPinSet;
+// static bool _doConnect;
+// static esp_spp_sec_t _sec_mask;
+static esp_spp_role_t _role;
+
 static bool _isMaster;
 static esp_bt_pin_code_t _pin_code;
 static int _pin_len;
-static bool _isPinSet;
-static bool _enableSSP;
-static esp_spp_sec_t _sec_mask;
-static esp_spp_role_t _role;
+//static bool _enableSSP;
 // start connect on ESP_SPP_DISCOVERY_COMP_EVT or save entry for getChannels
-static bool _doConnect;
 static std::map <int, std::string> sdpRecords;
 
 static BTScanResultsSet scanResults;
@@ -100,8 +102,21 @@ static BTAdvertisedDeviceCb advertisedDeviceCb = nullptr;
 typedef struct {
         size_t len;
         uint8_t data[];
+        uint32_t handle;
 } spp_packet_t;
 
+typedef struct {
+        uint32_t handle;
+        esp_bd_addr_t _peer_bd_addr;
+        bool _doConnect;
+        char _remote_name[ESP_BT_GAP_MAX_BDNAME_LEN + 1];
+        bool _isRemoteAddressSet;
+        bool _isPinSet;
+        bool _doConnect;
+        esp_spp_sec_t _sec_mask;
+} bt_remote_node_t;
+
+bt_remote_node_t remote_nodes[7];
 
 #if (ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO)
 static char *bda2str(esp_bd_addr_t bda, char *str, size_t size)
@@ -596,6 +611,9 @@ static void esp_bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
 
 static bool _init_bt(const char *deviceName)
 {
+    //init remote node list
+    memset(&remote_nodes, 0, sizeof(remote_nodes));
+
     if(!_bt_event_group){
         _bt_event_group = xEventGroupCreate();
         if(!_bt_event_group){
