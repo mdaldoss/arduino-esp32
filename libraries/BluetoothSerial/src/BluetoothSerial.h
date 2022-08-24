@@ -87,9 +87,11 @@ class BluetoothSerial: public Stream
         
         operator bool() const;
     private:
+        uint32_t client_id = 0;
         String local_name;
         int timeoutTicks=0;
-        
+        int num_config_acceptors = 0; // keep track on how many node has been configured
+        int current_client_id = 0; // keep track on the current client id who we are connecting to
 };
 
 #endif

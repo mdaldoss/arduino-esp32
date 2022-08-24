@@ -70,12 +70,12 @@ static AuthCompleteCb auth_complete_callback = NULL;
 // static bool _isRemoteAddressSet;
 // static bool _isPinSet;
 // static bool _doConnect;
-// static esp_spp_sec_t _sec_mask;
+static esp_spp_sec_t _sec_mask;
+//static esp_bt_pin_code_t _pin_code;
+//static int _pin_len;
 static esp_spp_role_t _role;
 
 static bool _isMaster;
-static esp_bt_pin_code_t _pin_code;
-static int _pin_len;
 //static bool _enableSSP;
 // start connect on ESP_SPP_DISCOVERY_COMP_EVT or save entry for getChannels
 static std::map <int, std::string> sdpRecords;
@@ -105,6 +105,14 @@ typedef struct {
         uint32_t handle;
 } spp_packet_t;
 
+// Multiple clients
+/*
+* Created:
+* - remote_nodes[]
+* TODO:
+* - _spp_event_group
+* - 
+*/
 typedef struct {
         uint32_t handle;
         esp_bd_addr_t _peer_bd_addr;
@@ -112,11 +120,12 @@ typedef struct {
         char _remote_name[ESP_BT_GAP_MAX_BDNAME_LEN + 1];
         bool _isRemoteAddressSet;
         bool _isPinSet;
-        bool _doConnect;
-        esp_spp_sec_t _sec_mask;
+        esp_bt_pin_code_t _pin_code;
+        int _pin_len;
 } bt_remote_node_t;
 
 bt_remote_node_t remote_nodes[7];
+
 
 #if (ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO)
 static char *bda2str(esp_bd_addr_t bda, char *str, size_t size)
@@ -171,17 +180,19 @@ static bool btSetPin() {
     return false;
 }
 
-static esp_err_t _spp_queue_packet(uint8_t *data, size_t len){
+static esp_err_t _spp_queue_packet(uint32_t handle, uint8_t *data, size_t len){
     if(!data || !len){
         log_w("No data provided");
         return ESP_OK;
     }
     spp_packet_t * packet = (spp_packet_t*)malloc(sizeof(spp_packet_t) + len);
+
     if(!packet){
         log_e("SPP TX Packet Malloc Failed!");
         return ESP_FAIL;
     }
     packet->len = len;
+    packet->handle = handle;
     memcpy(packet->data, data, len);
     if (!_spp_tx_queue || xQueueSend(_spp_tx_queue, &packet, SPP_TX_QUEUE_TIMEOUT) != pdPASS) {
         log_e("SPP TX Queue Send Failed!");
@@ -368,28 +379,34 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
             for(int i=0; i < param->disc_comp.scn_num; i++) {
                 log_d("ESP_SPP_DISCOVERY_COMP_EVT: spp [%d] channel: %d service name:%s", i, param->disc_comp.scn[i], param->disc_comp.service_name[0]);
             }
-            if(_doConnect) {
-                if(param->disc_comp.scn_num > 0) {
-#if (ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO)
-                    char bda_str[18];
-                    log_i("ESP_SPP_DISCOVERY_COMP_EVT: spp connect to remote %s channel %d",
-                        bda2str(_peer_bd_addr, bda_str, sizeof(bda_str)),
-                        param->disc_comp.scn[0]);
-#endif
-                    xEventGroupClearBits(_spp_event_group, SPP_CLOSED);
-                    if(esp_spp_connect(_sec_mask, _role, param->disc_comp.scn[0], _peer_bd_addr) != ESP_OK) {
-                        log_e("ESP_SPP_DISCOVERY_COMP_EVT connect failed");
+            for (size_t i=0; i<num_config_acceptors; i++){
+                // aggiungere controllo se nodo configurato esiste 
+                if(remote_nodes[i]._doConnect) {
+                    if(param->disc_comp.scn_num > 0) {
+    #if (ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO)
+                        char bda_str[18];
+                        log_i("ESP_SPP_DISCOVERY_COMP_EVT: spp connect to remote %s channel %d",
+                            bda2str(remote_nodes[i]._peer_bd_addr, bda_str, sizeof(bda_str)),
+                            param->disc_comp.scn[0]);
+    #endif
+                        xEventGroupClearBits(_spp_event_group, SPP_CLOSED);
+                        if(esp_spp_connect(remote_nodes[i]._sec_mask, _role, param->disc_comp.scn[0], remote_nodes[i]._peer_bd_addr) != ESP_OK) {
+                            log_e("ESP_SPP_DISCOVERY_COMP_EVT connect failed");
+                            xEventGroupSetBits(_spp_event_group, SPP_CLOSED);
+                        }
+                    } else {
+                        log_e("ESP_SPP_DISCOVERY_COMP_EVT remote doesn't offer an SPP channel");
                         xEventGroupSetBits(_spp_event_group, SPP_CLOSED);
                     }
+                    // If one node has to get connected stop trying connecting to others too
+                   // break;
                 } else {
-                    log_e("ESP_SPP_DISCOVERY_COMP_EVT remote doesn't offer an SPP channel");
-                    xEventGroupSetBits(_spp_event_group, SPP_CLOSED);
-                }
-            } else {
-                for(int i=0; i < param->disc_comp.scn_num; i++) {
-                    sdpRecords[param->disc_comp.scn[i]] = param->disc_comp.service_name[0];
+                    for(int i=0; i < param->disc_comp.scn_num; i++) {
+                        sdpRecords[param->disc_comp.scn[i]] = param->disc_comp.service_name[0];
+                    }
                 }
             }
+          
         } else {
             log_e("ESP_SPP_DISCOVERY_COMP_EVT failed!, status:%d", param->disc_comp.status);
         }
@@ -398,8 +415,9 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
 
     case ESP_SPP_OPEN_EVT://Client connection open
         log_i("ESP_SPP_OPEN_EVT");
-        if (!_spp_client){
-                _spp_client = param->open.handle;
+        
+        if (!remote_nodes[current_client_id].handle){
+                remote_nodes[current_client_id].handle = param->open.handle;
         } else {
             secondConnectionAttempt = true;
             esp_spp_disconnect(param->open.handle);
@@ -557,9 +575,9 @@ static void esp_bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
                 memset(pin_code, '0', ESP_BT_PIN_CODE_LEN);
                 esp_bt_gap_pin_reply(param->pin_req.bda, true, 16, pin_code);
             } else {
-                log_i("Input pin code: 1234");
+                log_i("Input pin code: 7290");
                 esp_bt_pin_code_t pin_code;
-                memcpy(pin_code, "1234", 4);
+                memcpy(pin_code, "7290", 4);
                 esp_bt_gap_pin_reply(param->pin_req.bda, true, 4, pin_code);
             }
             break;
@@ -815,6 +833,12 @@ int bt_getRSSI(char* address){
 	return rssi;
 }
 
+size_t bt_write(uint32_t nodeid, uint8_t *buffer, size_t size)
+    if (!remote_nodes[_spp_client].handle){
+        return 0;
+    }
+    return (_spp_queue_packet((uint8_t *)buffer, size) == ESP_OK) ? size : 0;
+
 /*
  * Serial Bluetooth Arduino
  *
@@ -895,10 +919,8 @@ size_t BluetoothSerial::write(uint8_t c)
 
 size_t BluetoothSerial::write(const uint8_t *buffer, size_t size)
 {
-    if (!_spp_client){
-        return 0;
-    }
-    return (_spp_queue_packet((uint8_t *)buffer, size) == ESP_OK) ? size : 0;
+    
+    return bt_write(this->client_id, *buffer, size)
 }
 
 void BluetoothSerial::flush()
