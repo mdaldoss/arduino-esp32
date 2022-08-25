@@ -920,7 +920,6 @@ int BluetoothSerial::getRSSI(int linkid){
 }
 
 int BluetoothSerial::getRSSI(char* address){    
-    sprintf(address, "%02x:%02x:%02x:%02x:%02x:%02x", remote_nodes[linkid]._peer_bd_addr[0],remote_nodes[linkid]._peer_bd_addr[1],remote_nodes[linkid]._peer_bd_addr[2],remote_nodes[linkid]._peer_bd_addr[3],remote_nodes[linkid]._peer_bd_addr[4],remote_nodes[linkid]._peer_bd_addr[5]);
     return bt_getRSSI(address);
 }
 
@@ -955,7 +954,7 @@ size_t BluetoothSerial::write(uint8_t c)
 size_t BluetoothSerial::write(const uint8_t *buffer, size_t size)
 {
     
-    return bt_write(this->client_id, *buffer, size)
+    return bt_write(this->client_id, *buffer, size);
 }
 
 void BluetoothSerial::flush()
@@ -1180,7 +1179,7 @@ bool BluetoothSerial::connected(int timeout) {
 /**
  * true if a connection terminated or a connection attempt failed
  */
-bool BluetoothSerial::isClosed(int linkid)) {
+bool BluetoothSerial::isClosed(int linkid){
     return xEventGroupGetBits(_spp_event_group) & SPP_CLOSED<<3*linkid;
 }
 
@@ -1207,14 +1206,14 @@ bool BluetoothSerial::isReady(bool checkMaster, int timeout) {
 BTScanResults* BluetoothSerial::discover(int timeoutMs) {
     scanResults.clear();
         return nullptr;
-    if (timeoutMs < MIN_INQ_TIME || timeoutMs > MAX_INQ_TIME || strlen(remote_nodes[linkid]._remote_name) || remote_nodes[linkid]._isRemoteAddressSet)
-    int timeout = timeoutMs / INQ_TIME;
+    if (timeoutMs < MIN_INQ_TIME || timeoutMs > MAX_INQ_TIME || strlen(remote_nodes[current_client_id]._remote_name) || remote_nodes[current_client_id]._isRemoteAddressSet)
+    uint8_t ttimeout = timeoutMs / INQ_TIME;
     log_i("discover::disconnect");
     disconnect();
     log_i("discovering");
     // will resolve name to address first - it may take a while
     esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
-    if (esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, timeout, 0) == ESP_OK) {
+    if (esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, ttimeout, 0) == ESP_OK) {
         waitForDiscovered(timeoutMs);
         log_i("gap_cancel_discovery()");
         esp_bt_gap_cancel_discovery();
