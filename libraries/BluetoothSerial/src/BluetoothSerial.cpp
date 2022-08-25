@@ -151,7 +151,7 @@ int getlinkid_fromhandle(int handle){
         if (remote_nodes[linkid].handle == handle)
             return linkid;
     }
-    return -1;
+    return 0;
 }
 
 static bool get_name_from_eir(uint8_t *eir, char *bdname, uint8_t *bdname_len)
@@ -219,14 +219,16 @@ const uint16_t SPP_TX_MAX = 330;
 static uint8_t _spp_tx_buffer[SPP_TX_MAX];
 static uint16_t _spp_tx_buffer_len = 0;
 
-static bool _spp_send_buffer(){
+static bool _spp_send_buffer(uint32_t handle){
+    // checkif handle is populate else use _spp_client has it would be in acceptor mode
+    //handle = handle ? handle : _spp_client;
     if((xEventGroupWaitBits(_spp_event_group, SPP_CONGESTED, pdFALSE, pdTRUE, SPP_CONGESTED_TIMEOUT) & SPP_CONGESTED) != 0){
-        if(!_spp_client){
-            log_v("SPP Client Gone!");
+        if(!handle){
+            log_i("SPP Client Gone!");
             return false;
         }
         log_v("SPP Write %u", _spp_tx_buffer_len);
-        esp_err_t err = esp_spp_write(_spp_client, _spp_tx_buffer_len, _spp_tx_buffer);
+        esp_err_t err = esp_spp_write(handle, _spp_tx_buffer_len, _spp_tx_buffer);
         if(err != ESP_OK){
             log_e("SPP Write Failed! [0x%X]", err);
             return false;
@@ -246,25 +248,34 @@ static void _spp_tx_task(void * arg){
     spp_packet_t *packet = NULL;
     size_t len = 0, to_send = 0;
     uint8_t * data = NULL;
+    uint32_t handle = 0;
+    uint32_t prev_handle = 0;
     for (;;) {
         if(_spp_tx_queue && xQueueReceive(_spp_tx_queue, &packet, portMAX_DELAY) == pdTRUE && packet){
+            if (prev_handle!=0 && packet->handle != prev_handle){
+                // flush memory
+                _spp_send_buffer(prev_handle);
+                break;
+            }
+            handle = packet->handle;
             if(packet->len <= (SPP_TX_MAX - _spp_tx_buffer_len)){
                 memcpy(_spp_tx_buffer+_spp_tx_buffer_len, packet->data, packet->len);
                 _spp_tx_buffer_len+=packet->len;
                 free(packet);
                 packet = NULL;
                 if(SPP_TX_MAX == _spp_tx_buffer_len || uxQueueMessagesWaiting(_spp_tx_queue) == 0){
-                    _spp_send_buffer();
+                    _spp_send_buffer(handle);
                 }
             } else {
                 to_send = SPP_TX_MAX - _spp_tx_buffer_len;
                 len = packet->len;
                 data = packet->data;
+                
                 memcpy(_spp_tx_buffer+_spp_tx_buffer_len, data, to_send);
                 _spp_tx_buffer_len = SPP_TX_MAX;
                 data += to_send;
                 len -= to_send;
-                if(!_spp_send_buffer()){
+                if(!_spp_send_buffer(handle)){
                     len = 0;
                 }
                 while(len >= SPP_TX_MAX){
@@ -272,7 +283,7 @@ static void _spp_tx_task(void * arg){
                     _spp_tx_buffer_len = SPP_TX_MAX;
                     data += SPP_TX_MAX;
                     len -= SPP_TX_MAX;
-                    if(!_spp_send_buffer()){
+                    if(!_spp_send_buffer(handle)){
                         len = 0;
                         break;
                     }
@@ -281,7 +292,7 @@ static void _spp_tx_task(void * arg){
                     memcpy(_spp_tx_buffer, data, len);
                     _spp_tx_buffer_len += len;
                     if(uxQueueMessagesWaiting(_spp_tx_queue) == 0){
-                        _spp_send_buffer();
+                        _spp_send_buffer(handle);
                     }
                 }
                 free(packet);
@@ -318,11 +329,15 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
 
     case ESP_SPP_SRV_OPEN_EVT://Server connection open
         if (param->srv_open.status == ESP_SPP_SUCCESS) {
-            log_i("ESP_SPP_SRV_OPEN_EVT: %u", _spp_client);
-            if (!_spp_client){
+            log_i("ESP_SPP_SRV_OPEN_EVT: _spp_client %u", remote_nodes[current_client_id].handle);
+            log_i("ESP_SPP_SRV_OPEN_EVT: handle %u", param->srv_open.handle);
+            if (!remote_nodes[current_client_id].handle){
                 _spp_client = param->srv_open.handle;
+                 remote_nodes[current_client_id].handle=param->srv_open.handle;
                 _spp_tx_buffer_len = 0;
             } else {
+                log_i("ESP_SPP_SRV_OPEN_EVT - Disconnecting: %u", remote_nodes[current_client_id].handle);
+
                 secondConnectionAttempt = true;
                 esp_spp_disconnect(param->srv_open.handle);
             }
@@ -778,14 +793,14 @@ static bool _init_bt(const char *deviceName)
 static bool _stop_bt()
 {
     if (btStarted()){
-        if(_spp_client)
-            esp_spp_disconnect(_spp_client);
+        if(remote_nodes[current_client_id].handle)
+            esp_spp_disconnect(remote_nodes[current_client_id].handle);
         esp_spp_deinit();
         esp_bluedroid_disable();
         esp_bluedroid_deinit();
         btStop();
     }
-    _spp_client = 0;
+    remote_nodes[current_client_id].handle = 0;
     if(_spp_task_handle){
         vTaskDelete(_spp_task_handle);
         _spp_task_handle = NULL;
@@ -858,12 +873,7 @@ int bt_getRSSI(char* address){
 	return rssi;
 }
 
-size_t bt_write(uint32_t linkid, uint8_t *buffer, size_t size){
-    if (!remote_nodes[linkid].handle){
-        return 0;
-    }
-    return (_spp_queue_packet((uint8_t *)buffer, size) == ESP_OK) ? size : 0;
-}
+
 /*
  * Serial Bluetooth Arduino
  *
@@ -910,7 +920,7 @@ int BluetoothSerial::peek(void)
 
 bool BluetoothSerial::hasClient(void)
 {
-    return _spp_client > 0;
+    return remote_nodes[current_client_id].handle > 0;
 }
 
 int BluetoothSerial::getRSSI(int linkid){
@@ -953,8 +963,11 @@ size_t BluetoothSerial::write(uint8_t c)
 
 size_t BluetoothSerial::write(const uint8_t *buffer, size_t size)
 {
-    
-    return bt_write(this->client_id, *buffer, size);
+    if (!remote_nodes[current_client_id].handle){
+        return 0;
+    }
+    log_i("write %d bytes to handle: %d", size, current_client_id );
+    return (_spp_queue_packet(remote_nodes[current_client_id].handle,(uint8_t *)buffer, size) == ESP_OK) ? size : 0;
 }
 
 void BluetoothSerial::flush()
@@ -1207,6 +1220,7 @@ BTScanResults* BluetoothSerial::discover(int timeoutMs) {
     scanResults.clear();
         return nullptr;
     if (timeoutMs < MIN_INQ_TIME || timeoutMs > MAX_INQ_TIME || strlen(remote_nodes[current_client_id]._remote_name) || remote_nodes[current_client_id]._isRemoteAddressSet)
+            return nullptr;
     uint8_t ttimeout = timeoutMs / INQ_TIME;
     log_i("discover::disconnect");
     disconnect();
