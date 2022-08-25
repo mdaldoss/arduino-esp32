@@ -68,15 +68,15 @@ static AuthCompleteCb auth_complete_callback = NULL;
 // static esp_bd_addr_t _peer_bd_addr;
 // static char _remote_name[ESP_BT_GAP_MAX_BDNAME_LEN + 1];
 // static bool _isRemoteAddressSet;
-// static bool _isPinSet;
+static bool _isPinSet;
 // static bool _doConnect;
 static esp_spp_sec_t _sec_mask;
-//static esp_bt_pin_code_t _pin_code;
-//static int _pin_len;
+static esp_bt_pin_code_t _pin_code;
+static int _pin_len;
 static esp_spp_role_t _role;
 
 static bool _isMaster;
-//static bool _enableSSP;
+static bool _enableSSP;
 // start connect on ESP_SPP_DISCOVERY_COMP_EVT or save entry for getChannels
 static std::map <int, std::string> sdpRecords;
 
@@ -120,14 +120,15 @@ typedef struct {
         bool _doConnect;
         char _remote_name[ESP_BT_GAP_MAX_BDNAME_LEN + 1];
         bool _isRemoteAddressSet;
-        bool _isPinSet;
-        esp_bt_pin_code_t _pin_code;
-        int _pin_len;
+        //bool _isPinSet;
+        //esp_bt_pin_code_t _pin_code;
+        //int _pin_len;
 } bt_remote_node_t;
 
 #define MAX_BT_ACCEPTORS 6 // the maximum of ESP32 is 7, here is set to 6 to fit the max size of _spp_event_group (24bit)
 
 bt_remote_node_t remote_nodes[MAX_BT_ACCEPTORS];
+static int current_client_id = 0; // keep track on the current client id who we are connecting to
 
 
 #if (ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO)
@@ -410,7 +411,7 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
                             param->disc_comp.scn[0]);
     #endif
                         xEventGroupClearBits(_spp_event_group, SPP_CLOSED<<3*current_client_id);
-                        if(esp_spp_connect(remote_nodes[current_client_id]._sec_mask, _role, param->disc_comp.scn[0], remote_nodes[current_client_id]._peer_bd_addr) != ESP_OK) {
+                        if(esp_spp_connect(_sec_mask, _role, param->disc_comp.scn[0], remote_nodes[current_client_id]._peer_bd_addr) != ESP_OK) {
                             log_e("ESP_SPP_DISCOVERY_COMP_EVT connect failed");
                             xEventGroupSetBits(_spp_event_group, SPP_CLOSED<<3*current_client_id);
                         }
@@ -507,10 +508,10 @@ static void esp_bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
                         if (strlen(remote_nodes[current_client_id]._remote_name) == peer_bdname_len
                             && strncmp(peer_bdname, remote_nodes[current_client_id]._remote_name, peer_bdname_len) == 0) {
                             log_i("ESP_BT_GAP_DISC_RES_EVT : SPP_START_DISCOVERY_BDNAME : %s", peer_bdname);
-                            _isRemoteAddressSet = true;
-                            memcpy(_peer_bd_addr, param->disc_res.bda, ESP_BD_ADDR_LEN);
+                            remote_nodes[current_client_id]._isRemoteAddressSet = true;
+                            memcpy(remote_nodes[current_client_id]._peer_bd_addr, param->disc_res.bda, ESP_BD_ADDR_LEN);
                             esp_bt_gap_cancel_discovery();
-                            esp_spp_start_discovery(_peer_bd_addr);
+                            esp_spp_start_discovery(remote_nodes[current_client_id]._peer_bd_addr);
                         } 
                         break;
 
@@ -857,12 +858,12 @@ int bt_getRSSI(char* address){
 	return rssi;
 }
 
-size_t bt_write(uint32_t nodeid, uint8_t *buffer, size_t size)
-    if (!remote_nodes[_spp_client].handle){
+size_t bt_write(uint32_t linkid, uint8_t *buffer, size_t size){
+    if (!remote_nodes[linkid].handle){
         return 0;
     }
     return (_spp_queue_packet((uint8_t *)buffer, size) == ESP_OK) ? size : 0;
-
+}
 /*
  * Serial Bluetooth Arduino
  *
@@ -912,12 +913,22 @@ bool BluetoothSerial::hasClient(void)
     return _spp_client > 0;
 }
 
-int BluetoothSerial::getRSSI(){
+int BluetoothSerial::getRSSI(int linkid){
+    char address[18];
+    sprintf(address, "%02x:%02x:%02x:%02x:%02x:%02x", remote_nodes[linkid]._peer_bd_addr[0],remote_nodes[linkid]._peer_bd_addr[1],remote_nodes[linkid]._peer_bd_addr[2],remote_nodes[linkid]._peer_bd_addr[3],remote_nodes[linkid]._peer_bd_addr[4],remote_nodes[linkid]._peer_bd_addr[5]);
+    return bt_getRSSI(address);
+}
+
+int BluetoothSerial::getRSSI(char* address){    
+    sprintf(address, "%02x:%02x:%02x:%02x:%02x:%02x", remote_nodes[linkid]._peer_bd_addr[0],remote_nodes[linkid]._peer_bd_addr[1],remote_nodes[linkid]._peer_bd_addr[2],remote_nodes[linkid]._peer_bd_addr[3],remote_nodes[linkid]._peer_bd_addr[4],remote_nodes[linkid]._peer_bd_addr[5]);
+    return bt_getRSSI(address);
+}
+
+int BluetoothSerial::getRSSI(esp_bd_addr_t _peer_bd_addr){    
     char address[18];
     sprintf(address, "%02x:%02x:%02x:%02x:%02x:%02x", _peer_bd_addr[0],_peer_bd_addr[1],_peer_bd_addr[2],_peer_bd_addr[3],_peer_bd_addr[4],_peer_bd_addr[5]);
     return bt_getRSSI(address);
 }
-
 
 int BluetoothSerial::read()
 {
@@ -1107,10 +1118,10 @@ bool BluetoothSerial::connect(uint8_t remoteAddress[], int linkid, int channel, 
 /**
  * Compatibility with previous function definition
  */
-bool BluetoothSerial::connect(uint8_t remoteAddress[], int linkid, int channel, esp_spp_sec_t sec_mask, esp_spp_role_t role){
-    const int linkid = 0;
-    return BluetoothSerial::connect(remoteAddress, linkid, channel, sec_mask, role);
-}
+// bool BluetoothSerial::connect(uint8_t remoteAddress[], int linkid, int channel, esp_spp_sec_t sec_mask, esp_spp_role_t role){
+//     const int linkid = 0;
+//     return BluetoothSerial::connect(remoteAddress, linkid, channel, sec_mask, role);
+// }
 
 bool BluetoothSerial::connect(int linkid)
 {

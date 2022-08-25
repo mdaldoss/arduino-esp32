@@ -61,11 +61,19 @@ class BluetoothSerial: public Stream
 
         void enableSSP();
         bool setPin(const char *pin);
-        bool connect(String remoteName, int linkid=0);
-        bool connect(uint8_t remoteAddress[], int channel=0, esp_spp_sec_t sec_mask=(ESP_SPP_SEC_ENCRYPT|ESP_SPP_SEC_AUTHENTICATE), esp_spp_role_t role=ESP_SPP_ROLE_MASTER);
+        bool connect(String remoteName){
+            return connect(remoteName, 0);
+        };
+        bool connect(String remoteName, int linkid);
+        bool connect(uint8_t remoteAddress[]){
+             return connect(remoteAddress, 0, 0, (ESP_SPP_SEC_ENCRYPT|ESP_SPP_SEC_AUTHENTICATE), ESP_SPP_ROLE_MASTER); };
+        bool connect(uint8_t remoteAddress[], int channel=0, esp_spp_sec_t sec_mask=(ESP_SPP_SEC_ENCRYPT|ESP_SPP_SEC_AUTHENTICATE), esp_spp_role_t role=ESP_SPP_ROLE_MASTER){
+             return connect(remoteAddress, 0, channel, sec_mask, role); };
+
         bool connect(uint8_t remoteAddress[], int linkid=0, int channel=0, esp_spp_sec_t sec_mask=(ESP_SPP_SEC_ENCRYPT|ESP_SPP_SEC_AUTHENTICATE), esp_spp_role_t role=ESP_SPP_ROLE_MASTER);
+
         bool connect(const BTAddress &remoteAddress, int channel=0, esp_spp_sec_t sec_mask=(ESP_SPP_SEC_ENCRYPT|ESP_SPP_SEC_AUTHENTICATE), esp_spp_role_t role=ESP_SPP_ROLE_MASTER) {
-			return connect(*remoteAddress.getNative(), channel, sec_mask); };
+			return connect(*remoteAddress.getNative(), 0, channel, sec_mask); };
         bool connect(int linkid=0);
         bool connected(int timeout=0);
         bool isClosed(int linkid=0);
@@ -78,7 +86,9 @@ class BluetoothSerial: public Stream
         void discoverAsyncStop();
         void discoverClear();
         BTScanResults* getScanResults();
-        int getRSSI();
+        int getRSSI(int linkid=0);
+        int getRSSI(esp_bd_addr_t _peer_bd_addr);
+        int getRSSI(char* address);    
 
         std::map<int, std::string> getChannels(const BTAddress &remoteAddress);
 
@@ -92,7 +102,6 @@ class BluetoothSerial: public Stream
         String local_name;
         int timeoutTicks=0;
         int num_config_acceptors = 0; // keep track on how many node has been configured
-        static int current_client_id = 0; // keep track on the current client id who we are connecting to
         //static int linkid_of_nodename_in_discovery = 0;
     
 
