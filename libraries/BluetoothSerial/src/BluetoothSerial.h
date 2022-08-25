@@ -61,15 +61,16 @@ class BluetoothSerial: public Stream
 
         void enableSSP();
         bool setPin(const char *pin);
-        bool connect(String remoteName);
+        bool connect(String remoteName, int linkid=0);
         bool connect(uint8_t remoteAddress[], int channel=0, esp_spp_sec_t sec_mask=(ESP_SPP_SEC_ENCRYPT|ESP_SPP_SEC_AUTHENTICATE), esp_spp_role_t role=ESP_SPP_ROLE_MASTER);
+        bool connect(uint8_t remoteAddress[], int linkid=0, int channel=0, esp_spp_sec_t sec_mask=(ESP_SPP_SEC_ENCRYPT|ESP_SPP_SEC_AUTHENTICATE), esp_spp_role_t role=ESP_SPP_ROLE_MASTER);
         bool connect(const BTAddress &remoteAddress, int channel=0, esp_spp_sec_t sec_mask=(ESP_SPP_SEC_ENCRYPT|ESP_SPP_SEC_AUTHENTICATE), esp_spp_role_t role=ESP_SPP_ROLE_MASTER) {
 			return connect(*remoteAddress.getNative(), channel, sec_mask); };
-        bool connect();
+        bool connect(int linkid=0);
         bool connected(int timeout=0);
-        bool isClosed();
+        bool isClosed(int linkid=0);
         bool isReady(bool checkMaster=false, int timeout=0);
-        bool disconnect();
+        bool disconnect(int linkid=0);
         bool unpairDevice(uint8_t remoteAddress[]);
 
         BTScanResults* discover(int timeout=0x30*1280);
@@ -91,7 +92,10 @@ class BluetoothSerial: public Stream
         String local_name;
         int timeoutTicks=0;
         int num_config_acceptors = 0; // keep track on how many node has been configured
-        int current_client_id = 0; // keep track on the current client id who we are connecting to
+        static int current_client_id = 0; // keep track on the current client id who we are connecting to
+        //static int linkid_of_nodename_in_discovery = 0;
+    
+
 };
 
 #endif
