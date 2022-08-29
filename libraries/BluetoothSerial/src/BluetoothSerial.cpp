@@ -101,18 +101,15 @@ static BTAdvertisedDeviceCb advertisedDeviceCb = nullptr;
 
 typedef struct {
         size_t len;
-        uint8_t data[];
         uint32_t handle;
+        uint8_t data[];
 } spp_packet_t;
 
 
 // Multiple clients
 /*
-* Created:
-* - remote_nodes[]
-* TODO:
-* - _spp_event_group
-* - 
+* added:
+* - remote_nodes
 */
 typedef struct {
         uint32_t handle;
@@ -120,9 +117,6 @@ typedef struct {
         bool _doConnect;
         char _remote_name[ESP_BT_GAP_MAX_BDNAME_LEN + 1];
         bool _isRemoteAddressSet;
-        //bool _isPinSet;
-        //esp_bt_pin_code_t _pin_code;
-        //int _pin_len;
 } bt_remote_node_t;
 
 #define MAX_BT_ACCEPTORS 6 // the maximum of ESP32 is 7, here is set to 6 to fit the max size of _spp_event_group (24bit)
@@ -206,6 +200,8 @@ static esp_err_t _spp_queue_packet(uint32_t handle, uint8_t *data, size_t len){
     }
     packet->len = len;
     packet->handle = handle;
+    log_i("_spp_queue_packet len: %d, handle: %d", len, handle);
+
     memcpy(packet->data, data, len);
     if (!_spp_tx_queue || xQueueSend(_spp_tx_queue, &packet, SPP_TX_QUEUE_TIMEOUT) != pdPASS) {
         log_e("SPP TX Queue Send Failed!");
@@ -252,25 +248,32 @@ static void _spp_tx_task(void * arg){
     uint32_t prev_handle = 0;
     for (;;) {
         if(_spp_tx_queue && xQueueReceive(_spp_tx_queue, &packet, portMAX_DELAY) == pdTRUE && packet){
+            handle = packet->handle;
+            //log_i("_spp_tx_task - &packet->handle: %d, packet->handle: %d ", handle, packet->handle);
+
             if (prev_handle!=0 && packet->handle != prev_handle){
                 // flush memory
+                log_i("_spp_tx_task Flushing tx queue, to handle %d, new handle data: %d ",prev_handle, handle);
+
                 _spp_send_buffer(prev_handle);
                 break;
             }
-            handle = packet->handle;
             if(packet->len <= (SPP_TX_MAX - _spp_tx_buffer_len)){
                 memcpy(_spp_tx_buffer+_spp_tx_buffer_len, packet->data, packet->len);
                 _spp_tx_buffer_len+=packet->len;
                 free(packet);
                 packet = NULL;
                 if(SPP_TX_MAX == _spp_tx_buffer_len || uxQueueMessagesWaiting(_spp_tx_queue) == 0){
+                   // log_i("_spp_tx_task tx handle: %d, len: %d ", handle, _spp_tx_buffer_len);
+
                     _spp_send_buffer(handle);
+                    
                 }
             } else {
                 to_send = SPP_TX_MAX - _spp_tx_buffer_len;
                 len = packet->len;
                 data = packet->data;
-                
+
                 memcpy(_spp_tx_buffer+_spp_tx_buffer_len, data, to_send);
                 _spp_tx_buffer_len = SPP_TX_MAX;
                 data += to_send;
@@ -332,8 +335,11 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
             log_i("ESP_SPP_SRV_OPEN_EVT: _spp_client %u", remote_nodes[current_client_id].handle);
             log_i("ESP_SPP_SRV_OPEN_EVT: handle %u", param->srv_open.handle);
             if (!remote_nodes[current_client_id].handle){
-                _spp_client = param->srv_open.handle;
+                 
                  remote_nodes[current_client_id].handle=param->srv_open.handle;
+                log_i("ESP_SPP_SRV_OPEN_EVT: connecting with handle %u", remote_nodes[current_client_id].handle);
+
+                _spp_client = param->srv_open.handle;
                 _spp_tx_buffer_len = 0;
             } else {
                 log_i("ESP_SPP_SRV_OPEN_EVT - Disconnecting: %u", remote_nodes[current_client_id].handle);
@@ -966,7 +972,7 @@ size_t BluetoothSerial::write(const uint8_t *buffer, size_t size)
     if (!remote_nodes[current_client_id].handle){
         return 0;
     }
-    log_i("write %d bytes to handle: %d", size, current_client_id );
+    log_i("write %d bytes to handle: %d", size, remote_nodes[current_client_id].handle);
     return (_spp_queue_packet(remote_nodes[current_client_id].handle,(uint8_t *)buffer, size) == ESP_OK) ? size : 0;
 }
 
