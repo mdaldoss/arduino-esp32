@@ -43,12 +43,16 @@ class BluetoothSerial: public Stream
         bool begin(unsigned long baud){//compatibility
             return begin();
         }
-        int available(void);
-        int peek(void);
+        int available(int linkid);
+        int available(void) {return available(0);};
+        int peek(int linkid);
+        int peek(void){return peek(0);};
         bool hasClient(void);
-        int read(void);
-        size_t write(uint8_t c);
-        size_t write(const uint8_t *buffer, size_t size);
+        int read(int linkid);
+        int read(void){return read(0);};
+        size_t write(uint8_t c,int linkkid);
+        size_t write(uint8_t c){return write(c,0);};
+        size_t write(const uint8_t *buffer, size_t size,int linkkid=0);
         void flush();
         void end(void);
         void setTimeout(int timeoutMS);

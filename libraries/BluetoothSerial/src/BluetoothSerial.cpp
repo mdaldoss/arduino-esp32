@@ -40,6 +40,7 @@
 #include "esp32-hal-log.h"
 
 const char * _spp_server_name = "ESP32SPP";
+#define MAX_BT_ACCEPTORS 6 // the maximum of ESP32 is 7, here is set to 6 to fit the max size of _spp_event_group (24bit)
 
 #define RX_QUEUE_SIZE 512
 #define TX_QUEUE_SIZE 32
@@ -48,7 +49,8 @@ const char * _spp_server_name = "ESP32SPP";
 #define SPP_CONGESTED_TIMEOUT 1000
 
 static uint32_t _spp_client = 0;
-static xQueueHandle _spp_rx_queue = NULL;
+//static xQueueHandle _spp_rx_queue = NULL;
+static xQueueHandle _spp_rx_queue[MAX_BT_ACCEPTORS] = {};
 static xQueueHandle _spp_tx_queue = NULL;
 static SemaphoreHandle_t _spp_tx_done = NULL;
 static TaskHandle_t _spp_task_handle = NULL;
@@ -106,7 +108,7 @@ typedef struct {
         uint8_t data[];
 } spp_packet_t;
 
-
+int linkid_ind = 0;
 // Multiple clients
 /*
 * added:
@@ -120,7 +122,6 @@ typedef struct {
         bool _isRemoteAddressSet;
 } bt_remote_node_t;
 
-#define MAX_BT_ACCEPTORS 6 // the maximum of ESP32 is 7, here is set to 6 to fit the max size of _spp_event_group (24bit)
 
 bt_remote_node_t remote_nodes[MAX_BT_ACCEPTORS];
 static int current_client_id = 0; // keep track on the current client id who we are connecting to
@@ -201,7 +202,7 @@ static esp_err_t _spp_queue_packet(uint32_t handle, uint8_t *data, size_t len){
     }
     packet->len = len;
     packet->handle = handle;
-    log_i("_spp_queue_packet len: %d, handle: %d", len, handle);
+    //log_i("_spp_queue_packet len: %d, handle: %d", len, handle);
 
     memcpy(packet->data, data, len);
     if (!_spp_tx_queue || xQueueSend(_spp_tx_queue, &packet, SPP_TX_QUEUE_TIMEOUT) != pdPASS) {
@@ -401,12 +402,13 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
         log_v("ESP_SPP_DATA_IND_EVT len=%d handle=%d", param->data_ind.len, param->data_ind.handle);
         //esp_log_buffer_hex("",param->data_ind.data,param->data_ind.len); //for low level debug
         //ets_printf("r:%u\n", param->data_ind.len);
-
+        
+        linkid_ind = getlinkid_fromhandle(param->data_ind.handle);
         if(custom_data_callback){
             custom_data_callback(param->data_ind.data, param->data_ind.len);
-        } else if (_spp_rx_queue != NULL){
+        } else if (_spp_rx_queue[linkid_ind] != NULL){
             for (int i = 0; i < param->data_ind.len; i++){
-                if(xQueueSend(_spp_rx_queue, param->data_ind.data + i, (TickType_t)0) != pdTRUE){
+                if(xQueueSend(_spp_rx_queue[linkid_ind], param->data_ind.data + i, (TickType_t)0) != pdTRUE){
                     log_e("RX Full! Discarding %u bytes", param->data_ind.len - i);
                     break;
                 }
@@ -698,13 +700,16 @@ static bool _init_bt(const char *deviceName)
             xEventGroupSetBits(_spp_event_group, SPP_CLOSED<<3*i);
         }
     }
-    if (_spp_rx_queue == NULL){
-        _spp_rx_queue = xQueueCreate(RX_QUEUE_SIZE, sizeof(uint8_t)); //initialize the queue
-        if (_spp_rx_queue == NULL){
-            log_e("RX Queue Create Failed");
-            return false;
+    for (size_t j=0; j<MAX_BT_ACCEPTORS; j++){        
+        if (_spp_rx_queue[j] == NULL){
+            _spp_rx_queue[j] = xQueueCreate(RX_QUEUE_SIZE, sizeof(uint8_t)); //initialize the queue
+            if (_spp_rx_queue[j] == NULL){
+                log_e("RX Queue Create Failed");
+                return false;
+            }
         }
     }
+
     if (_spp_tx_queue == NULL){
         _spp_tx_queue = xQueueCreate(TX_QUEUE_SIZE, sizeof(spp_packet_t*)); //initialize the queue
         if (_spp_tx_queue == NULL){
@@ -816,10 +821,12 @@ static bool _stop_bt()
         vEventGroupDelete(_spp_event_group);
         _spp_event_group = NULL;
     }
-    if(_spp_rx_queue){
-        vQueueDelete(_spp_rx_queue);
-        //ToDo: clear RX queue when in packet mode
-        _spp_rx_queue = NULL;
+    for (size_t j=0; j<MAX_BT_ACCEPTORS; j++){
+        if(_spp_rx_queue[j]){
+            vQueueDelete(_spp_rx_queue[j]);
+            //ToDo: clear RX queue when in packet mode
+            _spp_rx_queue[j] = NULL;
+        }
     }
     if(_spp_tx_queue){
         spp_packet_t *packet = NULL;
@@ -925,6 +932,8 @@ BluetoothSerial::~BluetoothSerial(void)
  */
 bool BluetoothSerial::begin(String localName, bool isMaster)
 {
+
+    memset(remote_nodes,0,sizeof(remote_nodes));
     _isMaster = isMaster;
     if (localName.length()){
         local_name = localName;
@@ -932,18 +941,18 @@ bool BluetoothSerial::begin(String localName, bool isMaster)
     return _init_bt(local_name.c_str());
 }
 
-int BluetoothSerial::available(void)
+int BluetoothSerial::available(int linkid)
 {
-    if (_spp_rx_queue == NULL){
+    if (_spp_rx_queue[linkid] == NULL){
         return 0;
     }
-    return uxQueueMessagesWaiting(_spp_rx_queue);
+    return uxQueueMessagesWaiting(_spp_rx_queue[linkid]);
 }
 
-int BluetoothSerial::peek(void)
+int BluetoothSerial::peek(int linkid)
 {
     uint8_t c;
-    if (_spp_rx_queue && xQueuePeek(_spp_rx_queue, &c, this->timeoutTicks)){
+    if (_spp_rx_queue[linkid] && xQueuePeek(_spp_rx_queue[linkid], &c, this->timeoutTicks)){
         return c;
     }
     return -1;
@@ -970,10 +979,10 @@ int BluetoothSerial::getRSSI(esp_bd_addr_t _peer_bd_addr){
     return bt_getRSSI(address);
 }
 
-int BluetoothSerial::read()
+int BluetoothSerial::read(int linkid)
 {
     uint8_t c = 0;
-    if (_spp_rx_queue && xQueueReceive(_spp_rx_queue, &c, this->timeoutTicks)){
+    if (_spp_rx_queue[linkid] && xQueueReceive(_spp_rx_queue[linkid], &c, this->timeoutTicks)){
         return c;
     }
     return -1;
@@ -987,18 +996,18 @@ void BluetoothSerial::setTimeout(int timeoutMS)
     this->timeoutTicks=timeoutMS / portTICK_PERIOD_MS;
 }
 
-size_t BluetoothSerial::write(uint8_t c)
+size_t BluetoothSerial::write(uint8_t c, int linkkid)
 {
-    return write(&c, 1);
+    return write(&c, 1, linkkid);
 }
 
-size_t BluetoothSerial::write(const uint8_t *buffer, size_t size)
-{
-    if (!remote_nodes[current_client_id].handle){
+size_t BluetoothSerial::write(const uint8_t *buffer, size_t size, int linkkid)
+{   
+    if (!remote_nodes[linkkid].handle){
         return 0;
     }
-    log_i("write %d bytes to handle: %d", size, remote_nodes[current_client_id].handle);
-    return (_spp_queue_packet(remote_nodes[current_client_id].handle,(uint8_t *)buffer, size) == ESP_OK) ? size : 0;
+    //log_i("write %d bytes to handle: %d", size, remote_nodes[current_client_id].handle);
+    return (_spp_queue_packet(remote_nodes[linkkid].handle,(uint8_t *)buffer, size) == ESP_OK) ? size : 0;
 }
 
 void BluetoothSerial::flush()
@@ -1249,7 +1258,6 @@ bool BluetoothSerial::isReady(bool checkMaster, int timeout) {
  */
 BTScanResults* BluetoothSerial::discover(int timeoutMs) {
     scanResults.clear();
-        return nullptr;
     if (timeoutMs < MIN_INQ_TIME || timeoutMs > MAX_INQ_TIME || strlen(remote_nodes[current_client_id]._remote_name) || remote_nodes[current_client_id]._isRemoteAddressSet)
             return nullptr;
     uint8_t ttimeout = timeoutMs / INQ_TIME;
