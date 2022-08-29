@@ -35,6 +35,7 @@
 #include "esp_bt_device.h"
 #include "esp_spp_api.h"
 #include <esp_log.h>
+#include "esp_gap_ble_api.h"
 
 #include "esp32-hal-log.h"
 
@@ -864,6 +865,29 @@ static bool waitForSDPRecord(int timeout) {
 }
 
 int bt_getRSSI(char* address){
+
+    // update rssi result
+	uint32_t hexAddrTmp[ESP_BD_ADDR_LEN];
+	esp_bd_addr_t hexAddr;
+	bool retCode = (sscanf(address, "%x:%x:%x:%x:%x:%x", &hexAddrTmp[0], &hexAddrTmp[1], &hexAddrTmp[2], &hexAddrTmp[3],&hexAddrTmp[4],&hexAddrTmp[5]) != EOF) ? true : false;
+
+	for (uint8_t i = 0; i < ESP_BD_ADDR_LEN && (retCode == true); i++)
+	{
+		if (hexAddrTmp[i] <= 0xFF)
+		{
+			hexAddr[i] = (uint8_t)hexAddrTmp[i];
+		}
+		else
+		{
+			retCode = false;
+		}
+	}
+	if (retCode == true)
+	{
+         if(esp_ble_gap_read_rssi(hexAddr) != ESP_OK){
+        log_e("bt_getRSSI | Error in requiring updated RSSI!");
+    }
+    }
     int cnt = scanResults.getCount();
     int rssi = 0;
     BTAdvertisedDevice* dev;
@@ -872,6 +896,7 @@ int bt_getRSSI(char* address){
 			if (dev && strcmp(address, dev->getAddress().toString().c_str()))
             {      
                 rssi = dev->getRSSI();
+                break;
             }
 		}
 
