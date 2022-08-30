@@ -67,20 +67,18 @@ static AuthCompleteCb auth_complete_callback = NULL;
 #define INQ_NUM_RSPS 20
 #define READY_TIMEOUT (10 * 1000)
 #define SCAN_TIMEOUT (INQ_LEN * 2 * 1000)
-
 // static esp_bd_addr_t _peer_bd_addr;
 // static char _remote_name[ESP_BT_GAP_MAX_BDNAME_LEN + 1];
 // static bool _isRemoteAddressSet;
-static bool _isPinSet;
-// static bool _doConnect;
-static esp_spp_sec_t _sec_mask;
+static bool _isMaster;
 static esp_bt_pin_code_t _pin_code;
 static int _pin_len;
-static esp_spp_role_t _role;
-
-static bool _isMaster;
+static bool _isPinSet;
 static bool _enableSSP;
+static esp_spp_sec_t _sec_mask;
+static esp_spp_role_t _role;
 // start connect on ESP_SPP_DISCOVERY_COMP_EVT or save entry for getChannels
+// static bool _doConnect;
 static std::map <int, std::string> sdpRecords;
 
 static BTScanResultsSet scanResults;
@@ -88,8 +86,8 @@ static BTAdvertisedDeviceCb advertisedDeviceCb = nullptr;
 
 // _spp_event_group
 #define SPP_RUNNING     0x01
-#define SPP_CONGESTED   0x02
-#define SPP_CONNECTED   0x04
+#define SPP_CONNECTED   0x02
+#define SPP_CONGESTED   0x04
 // true until OPEN successful, changes to false on CLOSE
 #define SPP_DISCONNECTED 0x08
 // true until connect(), changes to true on CLOSE
@@ -195,7 +193,6 @@ static esp_err_t _spp_queue_packet(uint32_t handle, uint8_t *data, size_t len){
         return ESP_OK;
     }
     spp_packet_t * packet = (spp_packet_t*)malloc(sizeof(spp_packet_t) + len);
-
     if(!packet){
         log_e("SPP TX Packet Malloc Failed!");
         return ESP_FAIL;
@@ -203,7 +200,6 @@ static esp_err_t _spp_queue_packet(uint32_t handle, uint8_t *data, size_t len){
     packet->len = len;
     packet->handle = handle;
     //log_i("_spp_queue_packet len: %d, handle: %d", len, handle);
-
     memcpy(packet->data, data, len);
     if (!_spp_tx_queue || xQueueSend(_spp_tx_queue, &packet, SPP_TX_QUEUE_TIMEOUT) != pdPASS) {
         log_e("SPP TX Queue Send Failed!");
@@ -250,16 +246,15 @@ static void _spp_tx_task(void * arg){
     uint32_t prev_handle = 0;
     for (;;) {
         if(_spp_tx_queue && xQueueReceive(_spp_tx_queue, &packet, portMAX_DELAY) == pdTRUE && packet){
-            handle = packet->handle;
             //log_i("_spp_tx_task - &packet->handle: %d, packet->handle: %d ", handle, packet->handle);
-
+            handle = packet->handle;
             if (prev_handle!=0 && packet->handle != prev_handle){
                 // flush memory
-                log_i("_spp_tx_task Flushing tx queue, to handle %d, new handle data: %d ",prev_handle, handle);
-
+                log_i("_spp_tx_task Changing packet destination, sending tx queue to handle %d. New handle: %d ",prev_handle, handle);
                 _spp_send_buffer(prev_handle);
                 break;
             }
+            prev_handle = packet->handle;
             if(packet->len <= (SPP_TX_MAX - _spp_tx_buffer_len)){
                 memcpy(_spp_tx_buffer+_spp_tx_buffer_len, packet->data, packet->len);
                 _spp_tx_buffer_len+=packet->len;
@@ -267,15 +262,12 @@ static void _spp_tx_task(void * arg){
                 packet = NULL;
                 if(SPP_TX_MAX == _spp_tx_buffer_len || uxQueueMessagesWaiting(_spp_tx_queue) == 0){
                    // log_i("_spp_tx_task tx handle: %d, len: %d ", handle, _spp_tx_buffer_len);
-
                     _spp_send_buffer(handle);
-                    
                 }
             } else {
-                to_send = SPP_TX_MAX - _spp_tx_buffer_len;
                 len = packet->len;
                 data = packet->data;
-
+                to_send = SPP_TX_MAX - _spp_tx_buffer_len;
                 memcpy(_spp_tx_buffer+_spp_tx_buffer_len, data, to_send);
                 _spp_tx_buffer_len = SPP_TX_MAX;
                 data += to_send;
@@ -311,11 +303,9 @@ static void _spp_tx_task(void * arg){
     _spp_task_handle = NULL;
 }
 
-
 static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
 {
     int linkid = 0;
-
     switch (event)
     {
     case ESP_SPP_INIT_EVT:
@@ -334,18 +324,15 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
 
     case ESP_SPP_SRV_OPEN_EVT://Server connection open
         if (param->srv_open.status == ESP_SPP_SUCCESS) {
-            log_i("ESP_SPP_SRV_OPEN_EVT: _spp_client %u", remote_nodes[current_client_id].handle);
-            log_i("ESP_SPP_SRV_OPEN_EVT: handle %u", param->srv_open.handle);
+            log_i("ESP_SPP_SRV_OPEN_EVT: saved handle  %u", remote_nodes[current_client_id].handle);
+            log_i("ESP_SPP_SRV_OPEN_EVT: opened handle %u", param->srv_open.handle);
             if (!remote_nodes[current_client_id].handle){
-                 
                  remote_nodes[current_client_id].handle=param->srv_open.handle;
                 log_i("ESP_SPP_SRV_OPEN_EVT: connecting with handle %u", remote_nodes[current_client_id].handle);
-
                 _spp_client = param->srv_open.handle;
                 _spp_tx_buffer_len = 0;
             } else {
                 log_i("ESP_SPP_SRV_OPEN_EVT - Disconnecting: %u", remote_nodes[current_client_id].handle);
-
                 secondConnectionAttempt = true;
                 esp_spp_disconnect(param->srv_open.handle);
             }
@@ -358,7 +345,6 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
 
     case ESP_SPP_CLOSE_EVT://Client connection closed
         linkid = getlinkid_fromhandle(param->close.handle); 
-
         if ((param->close.async == false && param->close.status == ESP_SPP_SUCCESS) || param->close.async) {
             log_i("ESP_SPP_CLOSE_EVT status:%d handle:%d close_by_remote:%d attempt %u", param->close.status,
                  param->close.handle, param->close.async, secondConnectionAttempt);
@@ -369,7 +355,6 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
                 xEventGroupSetBits(_spp_event_group, SPP_DISCONNECTED<<3*linkid);
                 xEventGroupSetBits(_spp_event_group, SPP_CONGESTED);
                 xEventGroupSetBits(_spp_event_group, SPP_CLOSED<<3*linkid);
-                
             }        
             xEventGroupClearBits(_spp_event_group, SPP_CONNECTED<<3*linkid);
         } else {
@@ -402,7 +387,6 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
         log_v("ESP_SPP_DATA_IND_EVT len=%d handle=%d", param->data_ind.len, param->data_ind.handle);
         //esp_log_buffer_hex("",param->data_ind.data,param->data_ind.len); //for low level debug
         //ets_printf("r:%u\n", param->data_ind.len);
-        
         linkid_ind = getlinkid_fromhandle(param->data_ind.handle);
         if(custom_data_callback){
             custom_data_callback(param->data_ind.data, param->data_ind.len);
@@ -417,41 +401,33 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
         break;
 
     case ESP_SPP_DISCOVERY_COMP_EVT://discovery complete
-
         log_i("ESP_SPP_DISCOVERY_COMP_EVT num=%d", param->disc_comp.scn_num);
         if (param->disc_comp.status == ESP_SPP_SUCCESS) {
             for(int i=0; i < param->disc_comp.scn_num; i++) {
                 log_d("ESP_SPP_DISCOVERY_COMP_EVT: spp [%d] channel: %d service name:%s", i, param->disc_comp.scn[i], param->disc_comp.service_name[0]);
             }
-            
-            //for (size_t i=0; i<num_config_acceptors; i++){
-                // aggiungere controllo se nodo configurato esiste 
-                if(remote_nodes[current_client_id]._doConnect) {
-                    if(param->disc_comp.scn_num > 0) {
-    #if (ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO)
-                        char bda_str[18];
-                        log_i("ESP_SPP_DISCOVERY_COMP_EVT: spp connect to remote %s channel %d",
-                            bda2str(remote_nodes[current_client_id]._peer_bd_addr, bda_str, sizeof(bda_str)),
-                            param->disc_comp.scn[0]);
-    #endif
-                        xEventGroupClearBits(_spp_event_group, SPP_CLOSED<<3*current_client_id);
-                        if(esp_spp_connect(_sec_mask, _role, param->disc_comp.scn[0], remote_nodes[current_client_id]._peer_bd_addr) != ESP_OK) {
-                            log_e("ESP_SPP_DISCOVERY_COMP_EVT connect failed");
-                            xEventGroupSetBits(_spp_event_group, SPP_CLOSED<<3*current_client_id);
-                        }
-                    } else {
-                        log_e("ESP_SPP_DISCOVERY_COMP_EVT remote doesn't offer an SPP channel");
+            if(remote_nodes[current_client_id]._doConnect) {
+                if(param->disc_comp.scn_num > 0) {
+#if (ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO)
+                    char bda_str[18];
+                    log_i("ESP_SPP_DISCOVERY_COMP_EVT: spp connect to remote %s channel %d",
+                        bda2str(remote_nodes[current_client_id]._peer_bd_addr, bda_str, sizeof(bda_str)),
+                        param->disc_comp.scn[0]);
+#endif
+                    xEventGroupClearBits(_spp_event_group, SPP_CLOSED<<3*current_client_id);
+                    if(esp_spp_connect(_sec_mask, _role, param->disc_comp.scn[0], remote_nodes[current_client_id]._peer_bd_addr) != ESP_OK) {
+                        log_e("ESP_SPP_DISCOVERY_COMP_EVT connect failed");
                         xEventGroupSetBits(_spp_event_group, SPP_CLOSED<<3*current_client_id);
                     }
-                    // If one node has to get connected stop trying connecting to others too
-                   // break;
                 } else {
-                    for(int i=0; i < param->disc_comp.scn_num; i++) {
-                        sdpRecords[param->disc_comp.scn[i]] = param->disc_comp.service_name[0];
-                    }
+                    log_e("ESP_SPP_DISCOVERY_COMP_EVT remote doesn't offer an SPP channel");
+                    xEventGroupSetBits(_spp_event_group, SPP_CLOSED<<3*current_client_id);
                 }
-            //}
-          
+            } else {
+                for(int i=0; i < param->disc_comp.scn_num; i++) {
+                    sdpRecords[param->disc_comp.scn[i]] = param->disc_comp.service_name[0];
+                }
+            }
         } else {
             log_e("ESP_SPP_DISCOVERY_COMP_EVT failed!, status:%d", param->disc_comp.status);
         }
@@ -460,7 +436,6 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
 
     case ESP_SPP_OPEN_EVT://Client connection open
         log_i("ESP_SPP_OPEN_EVT");
-        
         if (!remote_nodes[current_client_id].handle){
                 remote_nodes[current_client_id].handle = param->open.handle;
         } else {
@@ -512,7 +487,6 @@ static void esp_bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
                     case ESP_BT_GAP_DEV_PROP_EIR:  
                         if (get_name_from_eir((uint8_t*)param->disc_res.prop[i].val, peer_bdname, &peer_bdname_len)) {
                             log_i("ESP_BT_GAP_DISC_RES_EVT : EIR : %s : %d", peer_bdname, peer_bdname_len);
-                            
                             if (strlen(remote_nodes[current_client_id]._remote_name) == peer_bdname_len
                                 && strncmp(peer_bdname, remote_nodes[current_client_id]._remote_name, peer_bdname_len) == 0) {
                                 log_v("ESP_BT_GAP_DISC_RES_EVT : SPP_START_DISCOVERY_EIR : %s", peer_bdname, peer_bdname_len);
@@ -658,10 +632,10 @@ static void esp_bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
                 log_i("ESP_BT_GAP_READ_REMOTE_NAME_EVT: no success stat:%d", param->read_rmt_name.stat);
             }
             break;
-        
+
         case ESP_BT_GAP_READ_RSSI_DELTA_EVT:
             log_i("ESP_BT_GAP_READ_RSSI_DELTA_EVT: %s", param->read_rssi_delta);
-        
+            break;
 
         case ESP_BT_GAP_MODE_CHG_EVT:
             log_i("ESP_BT_GAP_MODE_CHG_EVT: mode: %d", param->mode_chg.mode);
@@ -677,7 +651,6 @@ static bool _init_bt(const char *deviceName)
 {
     //init remote node list
     memset(&remote_nodes, 0, sizeof(remote_nodes));
-
     if(!_bt_event_group){
         _bt_event_group = xEventGroupCreate();
         if(!_bt_event_group){
@@ -686,7 +659,6 @@ static bool _init_bt(const char *deviceName)
         }
         xEventGroupClearBits(_bt_event_group, 0xFFFFFF);
     }
-     
     if(!_spp_event_group){
         _spp_event_group = xEventGroupCreate();
         if(!_spp_event_group){
@@ -698,6 +670,7 @@ static bool _init_bt(const char *deviceName)
         for (int i=0;i<MAX_BT_ACCEPTORS;i++){
             xEventGroupSetBits(_spp_event_group, SPP_DISCONNECTED<<3*i);
             xEventGroupSetBits(_spp_event_group, SPP_CLOSED<<3*i);
+            xEventGroupClearBits(_spp_event_group, SPP_CONNECTED<<3*i);
         }
     }
     for (size_t j=0; j<MAX_BT_ACCEPTORS; j++){        
@@ -805,14 +778,16 @@ static bool _init_bt(const char *deviceName)
 static bool _stop_bt()
 {
     if (btStarted()){
-        if(remote_nodes[current_client_id].handle)
-            esp_spp_disconnect(remote_nodes[current_client_id].handle);
+        for (int i=0; i<MAX_BT_ACCEPTORS; i++){
+        if(remote_nodes[i].handle)
+            esp_spp_disconnect(remote_nodes[i].handle);
+            remote_nodes[i].handle = 0;
+        }
         esp_spp_deinit();
         esp_bluedroid_disable();
         esp_bluedroid_deinit();
         btStop();
     }
-    remote_nodes[current_client_id].handle = 0;
     if(_spp_task_handle){
         vTaskDelete(_spp_task_handle);
         _spp_task_handle = NULL;
@@ -872,7 +847,6 @@ static bool waitForSDPRecord(int timeout) {
 }
 
 int bt_getRSSI(char* address){
-
     // update rssi result
 	uint32_t hexAddrTmp[ESP_BD_ADDR_LEN];
 	esp_bd_addr_t hexAddr;
@@ -906,11 +880,9 @@ int bt_getRSSI(char* address){
                 break;
             }
 		}
-
     //esp_bt_gap_read_rssi_delta(_peer_bd_addr);
 	return rssi;
 }
-
 
 /*
  * Serial Bluetooth Arduino
@@ -932,7 +904,6 @@ BluetoothSerial::~BluetoothSerial(void)
  */
 bool BluetoothSerial::begin(String localName, bool isMaster)
 {
-
     memset(remote_nodes,0,sizeof(remote_nodes));
     _isMaster = isMaster;
     if (localName.length()){
@@ -1002,7 +973,7 @@ size_t BluetoothSerial::write(uint8_t c, int linkkid)
 }
 
 size_t BluetoothSerial::write(const uint8_t *buffer, size_t size, int linkkid)
-{   
+{
     if (!remote_nodes[linkkid].handle){
         return 0;
     }
@@ -1075,7 +1046,6 @@ bool BluetoothSerial::setPin(const char *pin) {
 
 bool BluetoothSerial::connect(String remoteName, int linkid)
 {
-    
     current_client_id = linkid; // setting reference for given linkid
     bool retval = false;
 
@@ -1108,7 +1078,6 @@ bool BluetoothSerial::connect(String remoteName, int linkid)
     return retval;
 }
 
-
 /**
  * @Param channel: specify channel or 0 for auto-detect
  * @Param sec_mask:
@@ -1120,6 +1089,7 @@ bool BluetoothSerial::connect(String remoteName, int linkid)
  */
 bool BluetoothSerial::connect(uint8_t remoteAddress[], int linkid, int channel, esp_spp_sec_t sec_mask, esp_spp_role_t role)
 {
+    current_client_id = linkid; // setting reference for given linkid
     bool retval = false;
     if (!isReady(true, READY_TIMEOUT)) return false;
     if (!remoteAddress) {
@@ -1167,16 +1137,9 @@ bool BluetoothSerial::connect(uint8_t remoteAddress[], int linkid, int channel, 
     return retval;
 }
 
-/**
- * Compatibility with previous function definition
- */
-// bool BluetoothSerial::connect(uint8_t remoteAddress[], int linkid, int channel, esp_spp_sec_t sec_mask, esp_spp_role_t role){
-//     const int linkid = 0;
-//     return BluetoothSerial::connect(remoteAddress, linkid, channel, sec_mask, role);
-// }
-
 bool BluetoothSerial::connect(int linkid)
 {
+    current_client_id = linkid; // setting reference for given linkid
     if (!isReady(true, READY_TIMEOUT)) return false;
     remote_nodes[linkid]._doConnect = true;
     if (remote_nodes[linkid]._isRemoteAddressSet){
@@ -1260,13 +1223,13 @@ BTScanResults* BluetoothSerial::discover(int timeoutMs) {
     scanResults.clear();
     if (timeoutMs < MIN_INQ_TIME || timeoutMs > MAX_INQ_TIME || strlen(remote_nodes[current_client_id]._remote_name) || remote_nodes[current_client_id]._isRemoteAddressSet)
             return nullptr;
-    uint8_t ttimeout = timeoutMs / INQ_TIME;
+    int timeout = timeoutMs / INQ_TIME;
     log_i("discover::disconnect");
     disconnect();
     log_i("discovering");
     // will resolve name to address first - it may take a while
     esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
-    if (esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, ttimeout, 0) == ESP_OK) {
+    if (esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, timeout, 0) == ESP_OK) {
         waitForDiscovered(timeoutMs);
         log_i("gap_cancel_discovery()");
         esp_bt_gap_cancel_discovery();
@@ -1327,9 +1290,7 @@ BluetoothSerial::operator bool() const
  * esp_spp_start_discovery doesn't tell us the btAddress in the callback, so we have to wait until it's finished
  */
 std::map<int, std::string> BluetoothSerial::getChannels(const BTAddress &remoteAddress) {
-    
     remote_nodes[current_client_id]._doConnect = false;
-    
     if(xEventGroupGetBits(_bt_event_group) & BT_SDP_RUNNING) {
         log_e("getChannels failed - already running");
     }
