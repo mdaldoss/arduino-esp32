@@ -44,8 +44,7 @@ const char * _spp_server_name = "ESP32SPP";
 
 #define RX_QUEUE_SIZE 512
 #define TX_QUEUE_SIZE 32
-#define SPP_TX_QUEUE_TIMEOUT (1000/portTICK_PERIOD_MS)
-
+#define SPP_TX_QUEUE_TIMEOUT 1000
 #define SPP_TX_DONE_TIMEOUT 1000
 #define SPP_CONGESTED_TIMEOUT 1000
 
@@ -121,8 +120,8 @@ typedef struct {
         bool _isRemoteAddressSet;
 } bt_remote_node_t;
 
-static int current_client_id = 0; // keep track on the current client id who we are connecting to
 static bt_remote_node_t remote_nodes[MAX_BT_ACCEPTORS];
+static int current_client_id = 0; // keep track on the current client id who we are connecting to
 
 
 #if (ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO)
@@ -920,6 +919,7 @@ int BluetoothSerial::available(int linkid)
         return -1;
     }
     if (_spp_rx_queue[linkid] == NULL){
+         log_e("Rx Queue do not exist. Has the device been correctly init?")
         return 0;
     }
     return uxQueueMessagesWaiting(_spp_rx_queue[linkid]);
@@ -938,9 +938,9 @@ int BluetoothSerial::peek(int linkid)
     return -1;
 }
 
-bool BluetoothSerial::hasClient(void)
+bool BluetoothSerial::hasClient(int linkid)
 {
-    return remote_nodes[current_client_id].handle > 0;
+    return remote_nodes[linkid].handle > 0;
 }
 
 int BluetoothSerial::getRSSI(int linkid){
