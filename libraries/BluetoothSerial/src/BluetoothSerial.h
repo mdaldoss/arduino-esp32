@@ -69,8 +69,16 @@ class BluetoothSerial: public Stream
             return connect(remoteName, 0);
         };
         bool connect(String remoteName, int linkid);
+
+        bool connect(uint8_t remoteAddress[], int linkid){
+            return  connect(remoteAddress, linkid, 0,(ESP_SPP_SEC_AUTHENTICATE), ESP_SPP_ROLE_MASTER);
+        };
         
-        bool connect(uint8_t remoteAddress[], int linkid=0, int channel=0, esp_spp_sec_t sec_mask=(ESP_SPP_SEC_ENCRYPT|ESP_SPP_SEC_AUTHENTICATE), esp_spp_role_t role=ESP_SPP_ROLE_MASTER);
+        bool connect(uint8_t remoteAddress[]){
+            return  connect(remoteAddress, 0, 0,(ESP_SPP_SEC_ENCRYPT|ESP_SPP_SEC_AUTHENTICATE), ESP_SPP_ROLE_MASTER);
+        };
+
+        bool connect(uint8_t remoteAddress[], int linkid, int channel, esp_spp_sec_t sec_mask=(ESP_SPP_SEC_ENCRYPT|ESP_SPP_SEC_AUTHENTICATE), esp_spp_role_t role=ESP_SPP_ROLE_MASTER);
              //{return connect(remoteAddress, 0, channel, sec_mask, role); };
 
         bool connect(const BTAddress &remoteAddress, int linkid=0, int channel=0, esp_spp_sec_t sec_mask=(ESP_SPP_SEC_ENCRYPT|ESP_SPP_SEC_AUTHENTICATE), esp_spp_role_t role=ESP_SPP_ROLE_MASTER) {
