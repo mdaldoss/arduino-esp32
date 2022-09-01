@@ -48,7 +48,7 @@ class BluetoothSerial: public Stream
         int peek(int linkid);
         int peek(void){return peek(0);};
         bool hasClient(int linkid);
-        bool hasClient(void){return hasClient(0)};
+        bool hasClient(void){return hasClient(0);};
         int read(int linkid);
         int read(void){return read(0);};
         size_t write(uint8_t c,int linkkid);
