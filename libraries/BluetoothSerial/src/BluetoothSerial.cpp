@@ -919,7 +919,7 @@ int BluetoothSerial::available(int linkid)
         return -1;
     }
     if (_spp_rx_queue[linkid] == NULL){
-         log_e("Rx Queue do not exist. Has the device been correctly init?")
+         log_e("Rx Queue do not exist. Has the device been correctly init?");
         return 0;
     }
     return uxQueueMessagesWaiting(_spp_rx_queue[linkid]);
