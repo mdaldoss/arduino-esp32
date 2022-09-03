@@ -85,7 +85,7 @@ class BluetoothSerial: public Stream
         bool connect(const BTAddress &remoteAddress, int linkid=0, int channel=0, esp_spp_sec_t sec_mask=(ESP_SPP_SEC_ENCRYPT|ESP_SPP_SEC_AUTHENTICATE), esp_spp_role_t role=ESP_SPP_ROLE_MASTER) {
 			return connect(*remoteAddress.getNative(), linkid, channel, sec_mask); };
         bool connect(int linkid=0);
-        bool connected(int timeout=0);
+        bool connected(int linkid=0, int timeout=0);
         bool isClosed(int linkid=0);
         bool isReady(bool checkMaster=false, int timeout=0);
         bool disconnect(int linkid=0);
