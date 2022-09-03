@@ -40,7 +40,7 @@
 #include "esp32-hal-log.h"
 
 const char * _spp_server_name = "ESP32SPP";
-#define MAX_BT_ACCEPTORS 6 // the maximum of ESP32 is 7, here is set to 6 to fit the max size of _spp_event_group (24bit)
+#define MAX_BT_ACCEPTORS 6 // the maximum ESP32 can handle is 7
 
 #define RX_QUEUE_SIZE 512
 #define TX_QUEUE_SIZE 32
@@ -54,6 +54,7 @@ static xQueueHandle _spp_rx_queue[MAX_BT_ACCEPTORS] = {};
 static xQueueHandle _spp_tx_queue = NULL;
 static SemaphoreHandle_t _spp_tx_done = NULL;
 static TaskHandle_t _spp_task_handle = NULL;
+static EventGroupHandle_t _spp_event_group_l[MAX_BT_ACCEPTORS] ={};
 static EventGroupHandle_t _spp_event_group = NULL;
 static EventGroupHandle_t _bt_event_group = NULL;
 static boolean secondConnectionAttempt;
@@ -86,8 +87,8 @@ static BTAdvertisedDeviceCb advertisedDeviceCb = nullptr;
 
 // _spp_event_group
 #define SPP_RUNNING     0x01
-#define SPP_CONGESTED   0x02
-#define SPP_CONNECTED   0x04
+#define SPP_CONNECTED   0x02
+#define SPP_CONGESTED   0x04
 // true until OPEN successful, changes to false on CLOSE
 #define SPP_DISCONNECTED 0x08
 // true until connect(), changes to true on CLOSE
@@ -345,8 +346,8 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
                 secondConnectionAttempt = true;
                 esp_spp_disconnect(param->srv_open.handle);
             }
-            xEventGroupClearBits(_spp_event_group, SPP_DISCONNECTED<<3*0); // linkid = 0 for server mode (acceptor)
-            xEventGroupSetBits(_spp_event_group, SPP_CONNECTED<<3*0);
+            xEventGroupClearBits(_spp_event_group_l[current_client_id], SPP_DISCONNECTED); // linkid = 0 for server mode (acceptor)
+            xEventGroupSetBits(_spp_event_group_l[current_client_id], SPP_CONNECTED);
         } else {
             log_e("ESP_SPP_SRV_OPEN_EVT Failed!, status:%d", param->srv_open.status);
         }
@@ -361,11 +362,11 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
                 secondConnectionAttempt = false;
             } else {
                 remote_nodes[linkid].handle = 0;
-                xEventGroupSetBits(_spp_event_group, SPP_DISCONNECTED<<(3*linkid));
+                xEventGroupSetBits(_spp_event_group_l[linkid], SPP_DISCONNECTED);
                 xEventGroupSetBits(_spp_event_group, SPP_CONGESTED);
-                xEventGroupSetBits(_spp_event_group, SPP_CLOSED<<(3*linkid));
+                xEventGroupSetBits(_spp_event_group_l[linkid], SPP_CLOSED);
             }        
-            xEventGroupClearBits(_spp_event_group, SPP_CONNECTED<<(3*linkid));
+            xEventGroupClearBits(_spp_event_group_l[linkid], SPP_CONNECTED);
         } else {
             log_e("ESP_SPP_CLOSE_EVT failed!, status:%d", param->close.status);
         }
@@ -423,14 +424,14 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
                         bda2str(remote_nodes[current_client_id]._peer_bd_addr, bda_str, sizeof(bda_str)),
                         param->disc_comp.scn[0]);
 #endif
-                    xEventGroupClearBits(_spp_event_group, SPP_CLOSED<<3*current_client_id);
+                    xEventGroupClearBits(_spp_event_group_l[current_client_id], SPP_CLOSED);
                     if(esp_spp_connect(_sec_mask, _role, param->disc_comp.scn[0], remote_nodes[current_client_id]._peer_bd_addr) != ESP_OK) {
                         log_e("ESP_SPP_DISCOVERY_COMP_EVT connect failed");
-                        xEventGroupSetBits(_spp_event_group, SPP_CLOSED<<(3*current_client_id));
+                        xEventGroupSetBits(_spp_event_group_l[current_client_id], SPP_CLOSED);
                     }
                 } else {
                     log_e("ESP_SPP_DISCOVERY_COMP_EVT remote doesn't offer an SPP channel");
-                    xEventGroupSetBits(_spp_event_group, SPP_CLOSED<<(3*current_client_id));
+                    xEventGroupSetBits(_spp_event_group_l[current_client_id], SPP_CLOSED);
                 }
             } else {
                 for(int i=0; i < param->disc_comp.scn_num; i++) {
@@ -452,8 +453,8 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
             secondConnectionAttempt = true;
             esp_spp_disconnect(param->open.handle);
         }
-        xEventGroupClearBits(_spp_event_group, SPP_DISCONNECTED<<(3*client_linkid));
-        xEventGroupSetBits(_spp_event_group, SPP_CONNECTED<<(3*client_linkid));
+        xEventGroupClearBits(_spp_event_group_l[current_client_id], SPP_DISCONNECTED);
+        xEventGroupSetBits(_spp_event_group_l[current_client_id], SPP_CONNECTED);
         xEventGroupSetBits(_spp_event_group, SPP_CONGESTED);
         break;
 
@@ -679,11 +680,28 @@ static bool _init_bt(const char *deviceName)
         xEventGroupClearBits(_spp_event_group, 0xFFFFFF);
         xEventGroupSetBits(_spp_event_group, SPP_CONGESTED);
         for (int i=0;i<MAX_BT_ACCEPTORS;i++){
-            xEventGroupSetBits(_spp_event_group, SPP_DISCONNECTED<<3*i);
-            xEventGroupSetBits(_spp_event_group, SPP_CLOSED<<3*i);
-            xEventGroupClearBits(_spp_event_group, SPP_CONNECTED<<3*i);
+            xEventGroupSetBits(_spp_event_group, SPP_DISCONNECTED);
+            xEventGroupSetBits(_spp_event_group, SPP_CLOSED);
+            xEventGroupClearBits(_spp_event_group, SPP_CONNECTED);
         }
     }
+
+    for (int i=0; i<MAX_BT_ACCEPTORS; i++){
+            if(!_spp_event_group_l[i]){
+        _spp_event_group_l[i] = xEventGroupCreate();
+        if(!_spp_event_group_l[i]){
+            log_e("SPP Event Group Create Failed!");
+            return false;
+        }
+        xEventGroupClearBits(_spp_event_group_l[i], 0xFFFFFF);
+        for (int i=0;i<MAX_BT_ACCEPTORS;i++){
+            xEventGroupSetBits(_spp_event_group_l[i], SPP_DISCONNECTED);
+            xEventGroupSetBits(_spp_event_group_l[i], SPP_CLOSED);
+            xEventGroupClearBits(_spp_event_group_l[i], SPP_CONNECTED);
+        }
+    }
+    }
+
     for (size_t j=0; j<MAX_BT_ACCEPTORS; j++){        
         if (_spp_rx_queue[j] == NULL){
             _spp_rx_queue[j] = xQueueCreate(RX_QUEUE_SIZE, sizeof(uint8_t)); //initialize the queue
@@ -836,10 +854,10 @@ static bool _stop_bt()
 static bool waitForConnect(int linkid, int timeout) {
     TickType_t xTicksToWait = timeout / portTICK_PERIOD_MS;
     // wait for connected or closed
-    EventBits_t rc = xEventGroupWaitBits(_spp_event_group, SPP_CONNECTED<<(3*linkid) | SPP_CLOSED<<(3*linkid), pdFALSE, pdFALSE, xTicksToWait);
-    if((rc & SPP_CONNECTED<<(3*linkid)) != 0)
+    EventBits_t rc = xEventGroupWaitBits(_spp_event_group_l[linkid], SPP_CONNECTED | SPP_CLOSED, pdFALSE, pdFALSE, xTicksToWait);
+    if((rc & SPP_CONNECTED) != 0)
         return true;
-    else if((rc & SPP_CLOSED<<(3*linkid)) != 0) {
+    else if((rc & SPP_CLOSED) != 0) {
         log_d("connection closed!");
         return false;
     }
@@ -1108,7 +1126,7 @@ bool BluetoothSerial::connect(String remoteName, int linkid)
 #else
         esp_bt_gap_set_scan_mode(ESP_BT_SCAN_MODE_CONNECTABLE_DISCOVERABLE);
 #endif
-    xEventGroupClearBits(_spp_event_group, SPP_CLOSED<<(3*linkid));
+    xEventGroupClearBits(_spp_event_group_l[linkid], SPP_CLOSED);
     if (esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, INQ_LEN, INQ_NUM_RSPS) == ESP_OK) {
         retval = waitForConnect(linkid, SCAN_TIMEOUT);
     }
@@ -1149,7 +1167,7 @@ bool BluetoothSerial::connect(uint8_t remoteAddress[], int linkid, int channel, 
 	_role = role;
     memcpy(remote_nodes[linkid]._peer_bd_addr, remoteAddress, ESP_BD_ADDR_LEN);
     log_i("master : remoteAddress %d", remote_nodes[linkid]._peer_bd_addr[0]);
-    xEventGroupClearBits(_spp_event_group, SPP_CLOSED<<(3*linkid));
+    xEventGroupClearBits(_spp_event_group_l[linkid], SPP_CLOSED);
     if (channel > 0) {
 #if (ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO)
         char bda_str[18];
@@ -1228,7 +1246,7 @@ bool BluetoothSerial::disconnect(int linkid) {
         log_i("disconnecting");
         if (esp_spp_disconnect(remote_nodes[linkid].handle) == ESP_OK) {
             TickType_t xTicksToWait = READY_TIMEOUT / portTICK_PERIOD_MS;
-            return (xEventGroupWaitBits(_spp_event_group, SPP_DISCONNECTED<<(3*linkid), pdFALSE, pdTRUE, xTicksToWait) & SPP_DISCONNECTED<<(3*linkid)) != 0;
+            return (xEventGroupWaitBits(_spp_event_group_l[linkid], SPP_DISCONNECTED, pdFALSE, pdTRUE, xTicksToWait) & SPP_DISCONNECTED) != 0;
         }
     }
     return false;
@@ -1254,7 +1272,7 @@ bool BluetoothSerial::isClosed(int linkid){
         log_e("Error: Link id out of range");
         return false;
     }
-    return xEventGroupGetBits(_spp_event_group) & SPP_CLOSED<<(3*linkid);
+    return xEventGroupGetBits(_spp_event_group_l[linkid]) & SPP_CLOSED;
 }
 
 bool BluetoothSerial::isReady(bool checkMaster, int timeout) {
