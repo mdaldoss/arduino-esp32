@@ -660,7 +660,8 @@ static void esp_bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
 }
 
 static bool _init_bt(const char *deviceName)
-{
+{   
+    log_i("Init started!");
     //init remote node list
     memset(&remote_nodes, 0, sizeof(remote_nodes));
     if(!_bt_event_group){
@@ -685,23 +686,20 @@ static bool _init_bt(const char *deviceName)
             xEventGroupClearBits(_spp_event_group, SPP_CONNECTED);
         }
     }
-
     for (int i=0; i<MAX_BT_ACCEPTORS; i++){
+        if(1){
+        //if(!_spp_event_group_l[i]){
+            _spp_event_group_l[i] = xEventGroupCreate();
             if(!_spp_event_group_l[i]){
-        _spp_event_group_l[i] = xEventGroupCreate();
-        if(!_spp_event_group_l[i]){
-            log_e("SPP Event Group Create Failed!");
-            return false;
-        }
-        xEventGroupClearBits(_spp_event_group_l[i], 0xFFFFFF);
-        for (int i=0;i<MAX_BT_ACCEPTORS;i++){
-            xEventGroupSetBits(_spp_event_group_l[i], SPP_DISCONNECTED);
-            xEventGroupSetBits(_spp_event_group_l[i], SPP_CLOSED);
-            xEventGroupClearBits(_spp_event_group_l[i], SPP_CONNECTED);
-        }
+                log_e("SPP Event Group Create Failed!");
+                return false;
+            }
+            xEventGroupClearBits(_spp_event_group_l[i], 0xFFFFFF);
+                xEventGroupSetBits(_spp_event_group_l[i], SPP_DISCONNECTED);
+                xEventGroupSetBits(_spp_event_group_l[i], SPP_CLOSED);
+                xEventGroupClearBits(_spp_event_group_l[i], SPP_CONNECTED);
+            }
     }
-    }
-
     for (size_t j=0; j<MAX_BT_ACCEPTORS; j++){        
         if (_spp_rx_queue[j] == NULL){
             _spp_rx_queue[j] = xQueueCreate(RX_QUEUE_SIZE, sizeof(uint8_t)); //initialize the queue
@@ -801,6 +799,7 @@ static bool _init_bt(const char *deviceName)
         log_e("set cod failed");
         return false;
     }
+            log_i("Init Done");
     return true;
 }
 
