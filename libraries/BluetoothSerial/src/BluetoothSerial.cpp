@@ -453,8 +453,8 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
             secondConnectionAttempt = true;
             esp_spp_disconnect(param->open.handle);
         }
-        xEventGroupClearBits(_spp_event_group_l[current_client_id], SPP_DISCONNECTED);
-        xEventGroupSetBits(_spp_event_group_l[current_client_id], SPP_CONNECTED);
+        xEventGroupClearBits(_spp_event_group_l[client_linkid], SPP_DISCONNECTED);
+        xEventGroupSetBits(_spp_event_group_l[client_linkid], SPP_CONNECTED);
         xEventGroupSetBits(_spp_event_group, SPP_CONGESTED);
         break;
 
