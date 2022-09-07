@@ -680,24 +680,21 @@ static bool _init_bt(const char *deviceName)
         }
         xEventGroupClearBits(_spp_event_group, 0xFFFFFF);
         xEventGroupSetBits(_spp_event_group, SPP_CONGESTED);
-        for (int i=0;i<MAX_BT_ACCEPTORS;i++){
-            xEventGroupSetBits(_spp_event_group, SPP_DISCONNECTED);
-            xEventGroupSetBits(_spp_event_group, SPP_CLOSED);
-            xEventGroupClearBits(_spp_event_group, SPP_CONNECTED);
-        }
+        // xEventGroupSetBits(_spp_event_group, SPP_DISCONNECTED);
+        // xEventGroupSetBits(_spp_event_group, SPP_CLOSED);
+        // xEventGroupClearBits(_spp_event_group, SPP_CONNECTED);
     }
     for (int i=0; i<MAX_BT_ACCEPTORS; i++){
-        if(1){
-        //if(!_spp_event_group_l[i]){
+        if(!_spp_event_group_l[i]){
             _spp_event_group_l[i] = xEventGroupCreate();
             if(!_spp_event_group_l[i]){
                 log_e("SPP Event Group Create Failed!");
                 return false;
             }
             xEventGroupClearBits(_spp_event_group_l[i], 0xFFFFFF);
-                xEventGroupSetBits(_spp_event_group_l[i], SPP_DISCONNECTED);
-                xEventGroupSetBits(_spp_event_group_l[i], SPP_CLOSED);
-                xEventGroupClearBits(_spp_event_group_l[i], SPP_CONNECTED);
+            xEventGroupSetBits(_spp_event_group_l[i], SPP_DISCONNECTED);
+            xEventGroupSetBits(_spp_event_group_l[i], SPP_CLOSED);
+            xEventGroupClearBits(_spp_event_group_l[i], SPP_CONNECTED);
             }
     }
     for (size_t j=0; j<MAX_BT_ACCEPTORS; j++){        
