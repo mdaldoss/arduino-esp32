@@ -329,6 +329,7 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
             log_i("ESP_SPP_INIT_EVT: slave: start");
             esp_spp_start_srv(ESP_SPP_SEC_NONE, ESP_SPP_ROLE_SLAVE, 0, _spp_server_name);
         }
+        
         xEventGroupSetBits(_spp_event_group, SPP_RUNNING);
         break;
 
@@ -417,6 +418,12 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
                 log_i("ESP_SPP_DISCOVERY_COMP_EVT: spp [%d] channel: %d service name:%s", i, param->disc_comp.scn[i], param->disc_comp.service_name[0]);
             }
             if(remote_nodes[current_client_id]._doConnect) {
+
+                char bda_str_[18];
+                log_e("ESP_SPP_DISCOVERY_COMP_EVT: current_client_id %d, address: %s, channel %d", current_client_id,                 
+                    bda2str(remote_nodes[current_client_id]._peer_bd_addr, bda_str_, sizeof(bda_str_)),
+                    param->disc_comp.scn[0]);                
+
                 if(param->disc_comp.scn_num > 0) {
 #if (ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO)
                     char bda_str[18];
@@ -891,7 +898,7 @@ int bt_getRSSI(char* address){
 	if (retCode == true)
 	{
          if(esp_ble_gap_read_rssi(hexAddr) != ESP_OK){
-        log_e("bt_getRSSI | Error in requiring updated RSSI!");
+        log_e("bt_getRSSI | Error in requesting updated RSSI!");
     }
     }
     int cnt = scanResults.getCount();
@@ -1187,8 +1194,12 @@ bool BluetoothSerial::connect(uint8_t remoteAddress[], int linkid, int channel, 
             }
         }
     }
-  } else if (esp_spp_start_discovery(remote_nodes[linkid]._peer_bd_addr) == ESP_OK) {
+  } 
+  else {
+    log_i("Discovering channel...");
+    if (esp_spp_start_discovery(remote_nodes[linkid]._peer_bd_addr) == ESP_OK) {
     retval = waitForConnect(linkid, READY_TIMEOUT);
+    }
   }
 
   if (!retval) {
