@@ -1370,7 +1370,9 @@ BluetoothSerial::operator bool() const
  * SDP scan address
  * esp_spp_start_discovery doesn't tell us the btAddress in the callback, so we have to wait until it's finished
  */
-std::map<int, std::string> BluetoothSerial::getChannels(const BTAddress &remoteAddress) {
+std::map<int, std::string> BluetoothSerial::getChannels(int clientid, const BTAddress &remoteAddress) {
+    current_client_id = clientid;
+
     remote_nodes[current_client_id]._doConnect = false;
     if(xEventGroupGetBits(_bt_event_group) & BT_SDP_RUNNING) {
         log_e("getChannels failed - already running");
