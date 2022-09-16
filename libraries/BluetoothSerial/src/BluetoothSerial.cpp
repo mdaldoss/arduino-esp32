@@ -704,6 +704,12 @@ static bool _init_bt(const char *deviceName)
             xEventGroupSetBits(_spp_event_group_l[i], SPP_CLOSED);
             xEventGroupClearBits(_spp_event_group_l[i], SPP_CONNECTED);
             }
+        remote_nodes[i].handle=0;
+        remote_nodes[i]._doConnect=false;
+        remote_nodes[i]._isConnected =false;
+        remote_nodes[i]._isRemoteAddressSet =false;
+        remote_nodes[i]._peer_bd_addr[0] = 0;
+        remote_nodes[i]._remote_name[0] = 0;
     }
     for (size_t j=0; j<MAX_BT_ACCEPTORS; j++){        
         if (_spp_rx_queue[j] == NULL){
