@@ -558,6 +558,8 @@ static void esp_bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
                         log_i("ESP_BT_GAP_DISC_RES_EVT unknown property [%d]:type:%d", i, param->disc_res.prop[i].type);
                         break;
                 }
+                //if (remote_nodes[current_client_id]._isRemoteAddressSet)
+                //    break;
                 vTaskDelay(10);
             }
             if (peer_bdname_len)
