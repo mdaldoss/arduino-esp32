@@ -768,7 +768,7 @@ static bool waitForConnect(int timeout) {
 
 static bool waitForDiscovered(int timeout) {
     TickType_t xTicksToWait = timeout / portTICK_PERIOD_MS;
-    return (xEventGroupWaitBits(_spp_event_group, BT_DISCOVERY_COMPLETED, pdFALSE, pdTRUE, xTicksToWait) & BT_DISCOVERY_COMPLETED) != 0;
+    return (xEventGroupWaitBits(_bt_event_group, BT_DISCOVERY_COMPLETED, pdFALSE, pdTRUE, xTicksToWait) & BT_DISCOVERY_COMPLETED) != 0;
 }
 
 static bool waitForSDPRecord(int timeout) {
