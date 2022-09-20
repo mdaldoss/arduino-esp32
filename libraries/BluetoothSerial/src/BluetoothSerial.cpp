@@ -1169,13 +1169,16 @@ bool BluetoothSerial::connect(uint8_t remoteAddress[], int linkid, int channel, 
         return false;
     }
     current_client_id = linkid; // setting reference for given linkid
+    log_i("running connection on linkid: %d", current_client_id);
+
     bool retval = false;
     if (!isReady(true, READY_TIMEOUT)) return false;
     if (!remoteAddress) {
         log_e("No remote address is provided");
         return false; 
     }
-    //disconnect(linkid);
+    disconnect(linkid);
+    remote_nodes[linkid]._isConnected=false;
     remote_nodes[linkid]._doConnect = true;
     remote_nodes[linkid]._remote_name[0] = 0;
     remote_nodes[linkid]._isRemoteAddressSet = true;
@@ -1183,7 +1186,6 @@ bool BluetoothSerial::connect(uint8_t remoteAddress[], int linkid, int channel, 
 	_sec_mask = sec_mask;
 	_role = role;
     memcpy(remote_nodes[linkid]._peer_bd_addr, remoteAddress, ESP_BD_ADDR_LEN);
-    log_i("master : remoteAddress %d", remote_nodes[linkid]._peer_bd_addr[0]);
     xEventGroupClearBits(_spp_event_group_l[linkid], SPP_CLOSED);
     if (channel > 0) {
 #if (ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO)
@@ -1192,28 +1194,32 @@ bool BluetoothSerial::connect(uint8_t remoteAddress[], int linkid, int channel, 
             bda2str(remote_nodes[linkid]._peer_bd_addr, bda_str, sizeof(bda_str)),
             channel);
 #endif
-        if(esp_spp_connect(sec_mask, role, channel, remote_nodes[linkid]._peer_bd_addr) != ESP_OK ) 
+        if(esp_spp_connect(sec_mask, role, channel, remoteAddress) != ESP_OK ) 
         {
 			log_e("spp connect failed");
-      retval = false;
-    } else {
-      retval = waitForConnect(linkid, READY_TIMEOUT);
-      if(retval) {
-            log_i("connected");
+            retval = false;
+        } 
+        else {
+            retval = waitForConnect(linkid, READY_TIMEOUT);
+            if(retval) 
+            {
+                log_i("connected");
                 remote_nodes[linkid]._isConnected=true;
             } else {
-            if(this->isClosed()) {
-                log_e("connect failed");
-            } else {
-                log_e("connect timed out after %dms", READY_TIMEOUT);
+                if(this->isClosed()) {
+                    log_e("connect failed");
+                } else {
+                    log_e("connect timed out after %dms", READY_TIMEOUT);
+                }
             }
         }
-    }
+    } 
   } 
+    } 
   else {
     log_i("Discovering channel...");
-    if (esp_spp_start_discovery(remote_nodes[linkid]._peer_bd_addr) == ESP_OK) {
-    retval = waitForConnect(linkid, READY_TIMEOUT);
+    if (esp_spp_start_discovery(remoteAddress) == ESP_OK) {
+        retval = waitForConnect(linkid, 3*READY_TIMEOUT);
     }
   }
 
