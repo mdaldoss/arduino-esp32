@@ -332,7 +332,7 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
             log_i("ESP_SPP_INIT_EVT: slave: start");
             esp_spp_start_srv(ESP_SPP_SEC_NONE, ESP_SPP_ROLE_SLAVE, 0, _spp_server_name);
         }
-        
+
         xEventGroupSetBits(_spp_event_group, SPP_RUNNING);
         break;
 
@@ -421,9 +421,9 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
                 log_i("ESP_SPP_DISCOVERY_COMP_EVT: spp [%d] channel: %d service name:%s", i, param->disc_comp.scn[i], param->disc_comp.service_name[0]);
             }
             if(remote_nodes[current_client_id]._doConnect) {
-
+                log_i("ESP_SPP_DISCOVERY_COMP_EVT: in");
                 char bda_str_[18];
-                log_e("ESP_SPP_DISCOVERY_COMP_EVT: current_client_id %d, address: %s, channel %d", current_client_id,                 
+                log_i("ESP_SPP_DISCOVERY_COMP_EVT: current_client_id %d, address: %s, channel %d", current_client_id,                 
                     bda2str(remote_nodes[current_client_id]._peer_bd_addr, bda_str_, sizeof(bda_str_)),
                     param->disc_comp.scn[0]);                
 
@@ -456,10 +456,12 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
 
     case ESP_SPP_OPEN_EVT://Client connection open
         log_i("ESP_SPP_OPEN_EVT");
-        client_linkid = getLinkid_from_address(param->open.rem_bda); 
+        client_linkid = getLinkid_from_address(param->open.rem_bda);
+        //client_linkid = current_client_id;
         if (!remote_nodes[client_linkid].handle){
                 remote_nodes[client_linkid].handle = param->open.handle;
         } else {
+            log_i("ESP_SPP_OPEN_EVT -> Disconnection...");
             secondConnectionAttempt = true;
             esp_spp_disconnect(param->open.handle);
         }
@@ -514,6 +516,7 @@ static void esp_bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
                                 log_v("ESP_BT_GAP_DISC_RES_EVT : SPP_START_DISCOVERY_EIR : %s", peer_bdname, peer_bdname_len);
                                 remote_nodes[current_client_id]._isRemoteAddressSet = true;
                                 memcpy(remote_nodes[current_client_id]._peer_bd_addr, param->disc_res.bda, ESP_BD_ADDR_LEN);
+                                log_i("ESP_BT_GAP_DEV_PROP_EIR NAME found, cancel name discovery, connecting...");
                                 esp_bt_gap_cancel_discovery();
                                 log_i("esp_spp_start_discovery: %d",remote_nodes[current_client_id]._peer_bd_addr[0]);
                                 esp_spp_start_discovery(remote_nodes[current_client_id]._peer_bd_addr);
@@ -525,13 +528,14 @@ static void esp_bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
                         peer_bdname_len = param->disc_res.prop[i].len;
                         memcpy(peer_bdname, param->disc_res.prop[i].val, peer_bdname_len);
                         peer_bdname_len--; // len includes 0 terminator
-                        log_v("ESP_BT_GAP_DISC_RES_EVT : BDNAME :  %s : %d", peer_bdname, peer_bdname_len);
+                        log_i("ESP_BT_GAP_DISC_RES_EVT : BDNAME :  %s : %d", peer_bdname, peer_bdname_len);
                         if (strlen(remote_nodes[current_client_id]._remote_name) == peer_bdname_len
                             && strncmp(peer_bdname, remote_nodes[current_client_id]._remote_name, peer_bdname_len) == 0) {
                             log_i("ESP_BT_GAP_DISC_RES_EVT : SPP_START_DISCOVERY_BDNAME : %s", peer_bdname);
                             remote_nodes[current_client_id]._isRemoteAddressSet = true;
                             memcpy(remote_nodes[current_client_id]._peer_bd_addr, param->disc_res.bda, ESP_BD_ADDR_LEN);
                             esp_bt_gap_cancel_discovery();
+                            log_i("ESP_BT_GAP_DEV_PROP_BDNAME NAME found, cancel name discovery, connecting...");
                             esp_spp_start_discovery(remote_nodes[current_client_id]._peer_bd_addr);
                         } 
                         break;
@@ -566,8 +570,9 @@ static void esp_bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
                 //    break;
                 vTaskDelay(10);
             }
-            if (peer_bdname_len)
+            if (peer_bdname_len){
                 advertisedDevice.setName(peer_bdname);
+            }
             esp_bd_addr_t addr;
             memcpy(addr, param->disc_res.bda, ESP_BD_ADDR_LEN);
             advertisedDevice.setAddress(BTAddress(addr));
@@ -753,7 +758,7 @@ static bool _init_bt(const char *deviceName)
         log_e("initialize controller failed");
         return false;
     }
-    
+
     esp_bluedroid_status_t bt_state = esp_bluedroid_get_status();
     if (bt_state == ESP_BLUEDROID_STATUS_UNINITIALIZED){
         if (esp_bluedroid_init()) {
@@ -814,6 +819,7 @@ static bool _init_bt(const char *deviceName)
         log_e("set cod failed");
         return false;
     }
+
     // Setting disoverable mode
     esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
 
@@ -872,10 +878,12 @@ static bool waitForConnect(int linkid, int timeout) {
     TickType_t xTicksToWait = timeout / portTICK_PERIOD_MS;
     // wait for connected or closed
     EventBits_t rc = xEventGroupWaitBits(_spp_event_group_l[linkid], SPP_CONNECTED | SPP_CLOSED, pdFALSE, pdFALSE, xTicksToWait);
-    if((rc & SPP_CONNECTED) != 0)
+    if((rc & SPP_CONNECTED) != 0){
+        log_d("waitForConnect connection connected!");
         return true;
+    }
     else if((rc & SPP_CLOSED) != 0) {
-        log_d("connection closed!");
+        log_d("waitForConnect connection closed!");
         return false;
     }
     log_d("timeout");
@@ -1271,7 +1279,7 @@ bool BluetoothSerial::disconnect(int linkid) {
     }
     if (remote_nodes[linkid].handle) {
         flush();
-        log_i("disconnecting");
+        log_i("disconnecting %d", linkid);
         if (esp_spp_disconnect(remote_nodes[linkid].handle) == ESP_OK) {
             TickType_t xTicksToWait = READY_TIMEOUT / portTICK_PERIOD_MS;
             return (xEventGroupWaitBits(_spp_event_group_l[linkid], SPP_DISCONNECTED, pdFALSE, pdTRUE, xTicksToWait) & SPP_DISCONNECTED) != 0;
@@ -1333,7 +1341,7 @@ BTScanResults* BluetoothSerial::discover(int timeoutMs) {
     {
         disconnect(i);
     }
-    log_i("discovering");
+    log_i("disconnected devices.\n Running discovery with timeout: %d ms", timeoutMs);
     // will resolve name to address first - it may take a while
     //esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
     if (esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, timeout, 0) == ESP_OK) {
