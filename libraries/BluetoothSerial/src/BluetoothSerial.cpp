@@ -1214,8 +1214,6 @@ bool BluetoothSerial::connect(uint8_t remoteAddress[], int linkid, int channel, 
             }
         }
     } 
-  } 
-    } 
   else {
     log_i("Discovering channel...");
     if (esp_spp_start_discovery(remoteAddress) == ESP_OK) {
@@ -1224,8 +1222,10 @@ bool BluetoothSerial::connect(uint8_t remoteAddress[], int linkid, int channel, 
   }
 
   if (!retval) {
-    remote_nodes[linkid]._isRemoteAddressSet = false;
-    }
+        remote_nodes[linkid]._isRemoteAddressSet = false;
+  }else {
+    //connection successful-> reconnect to previous node
+  }    
     return retval;
 }
 
