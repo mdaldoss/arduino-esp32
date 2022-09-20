@@ -151,10 +151,12 @@ int getlinkid_from_handle(int handle){
 
 int getLinkid_from_address(esp_bd_addr_t addr){
     for (int i=0; i<MAX_BT_ACCEPTORS;i++){
-        if (remote_nodes[i]._peer_bd_addr==addr){
+        // compare addresses
+        if (memcmp(remote_nodes[i]._peer_bd_addr, addr, sizeof(esp_bd_addr_t))==0){
             return i;
         }
     }
+    log_e("Error, getLinkid_from_address could not find address in list!");
     // otherwise return id that is going to connect client 
     return current_client_id;
 } 
