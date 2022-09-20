@@ -814,7 +814,10 @@ static bool _init_bt(const char *deviceName)
         log_e("set cod failed");
         return false;
     }
-            log_i("Init Done");
+    // Setting disoverable mode
+    esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
+
+    log_i("Init Done");
     return true;
 }
 
