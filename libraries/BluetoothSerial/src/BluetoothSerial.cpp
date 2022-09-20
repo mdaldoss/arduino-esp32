@@ -119,6 +119,7 @@ typedef struct {
         bool _doConnect;
         char _remote_name[ESP_BT_GAP_MAX_BDNAME_LEN + 1];
         bool _isRemoteAddressSet;
+        bool _isConnected;
 } bt_remote_node_t;
 
 static bt_remote_node_t remote_nodes[MAX_BT_ACCEPTORS];
@@ -460,6 +461,7 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
             secondConnectionAttempt = true;
             esp_spp_disconnect(param->open.handle);
         }
+        remote_nodes[client_linkid]._isConnected = true;
         xEventGroupClearBits(_spp_event_group_l[client_linkid], SPP_DISCONNECTED);
         xEventGroupSetBits(_spp_event_group_l[client_linkid], SPP_CONNECTED);
         xEventGroupSetBits(_spp_event_group, SPP_CONGESTED);
@@ -1193,7 +1195,8 @@ bool BluetoothSerial::connect(uint8_t remoteAddress[], int linkid, int channel, 
       retval = waitForConnect(linkid, READY_TIMEOUT);
       if(retval) {
             log_i("connected");
-        } else {
+                remote_nodes[linkid]._isConnected=true;
+            } else {
             if(this->isClosed()) {
                 log_e("connect failed");
             } else {
