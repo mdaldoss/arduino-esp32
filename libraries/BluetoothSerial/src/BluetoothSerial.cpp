@@ -212,7 +212,7 @@ static esp_err_t _spp_queue_packet(uint32_t handle, uint8_t *data, size_t len){
     }
     packet->len = len;
     packet->handle = handle;
-    //log_i("_spp_queue_packet len: %d, handle: %d", len, handle);
+    log_i("_spp_queue_packet len: %d, handle: %d", len, handle);
     memcpy(packet->data, data, len);
     if (!_spp_tx_queue || xQueueSend(_spp_tx_queue, &packet, SPP_TX_QUEUE_TIMEOUT) != pdPASS) {
         log_e("SPP TX Queue Send Failed!");
@@ -234,7 +234,7 @@ static bool _spp_send_buffer(uint32_t handle){
             log_i("SPP Client Gone!");
             return false;
         }
-        log_v("SPP Write %u", _spp_tx_buffer_len);
+        log_v("SPP Write %u, handle %d", _spp_tx_buffer_len, handle);
         esp_err_t err = esp_spp_write(handle, _spp_tx_buffer_len, _spp_tx_buffer);
         if(err != ESP_OK){
             log_e("SPP Write Failed! [0x%X]", err);
@@ -264,11 +264,17 @@ static void _spp_tx_task(void * arg){
             if (prev_handle!=0 && packet->handle != prev_handle){
                 // flush memory
                 log_i("_spp_tx_task Changing packet destination, sending tx queue to handle %d. New handle: %d ",prev_handle, handle);
-                _spp_send_buffer(prev_handle);
+                if(_spp_tx_buffer_len>0){
+                    _spp_send_buffer(prev_handle);
+                }
+                else{
+                    log_i("0: _spp_tx_buffer_len %d", _spp_tx_buffer_len);
+                }
                 break;
             }
             prev_handle = packet->handle;
             if(packet->len <= (SPP_TX_MAX - _spp_tx_buffer_len)){
+                log_i("packet->len <= SPP_TX_MAX - _spp_tx_buffer_len"); 
                 memcpy(_spp_tx_buffer+_spp_tx_buffer_len, packet->data, packet->len);
                 _spp_tx_buffer_len+=packet->len;
                 free(packet);
@@ -436,7 +442,7 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
 #endif
                     xEventGroupClearBits(_spp_event_group_l[current_client_id], SPP_CLOSED);
                     if(esp_spp_connect(_sec_mask, _role, param->disc_comp.scn[0], remote_nodes[current_client_id]._peer_bd_addr) != ESP_OK) {
-                        log_e("ESP_SPP_DISCOVERY_COMP_EVT connect failed");
+                        log_e("ESP_SPP_DISCOVERY_COMP_EVT connect failed linkid %d",current_client_id);
                         xEventGroupSetBits(_spp_event_group_l[current_client_id], SPP_CLOSED);
                     }
                 } else {
