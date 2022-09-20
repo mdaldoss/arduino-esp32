@@ -173,17 +173,18 @@ the adv packet will be discarded until the memory is restored. */
     .controller_debug_flag = CONTROLLER_ADV_LOST_DEBUG_BIT,                \
     .mode = BTDM_CONTROLLER_MODE_EFF,                                      \
     .ble_max_conn = CONFIG_BTDM_CTRL_BLE_MAX_CONN_EFF,                     \
-    .bt_max_acl_conn = CONFIG_BTDM_CTRL_BR_EDR_MAX_ACL_CONN_EFF,           \
+    .bt_max_acl_conn = 7,           \
     .bt_sco_datapath = CONFIG_BTDM_CTRL_BR_EDR_SCO_DATA_PATH_EFF,          \
     .auto_latency = BTDM_CTRL_AUTO_LATENCY_EFF,                            \
     .bt_legacy_auth_vs_evt = BTDM_CTRL_LEGACY_AUTH_VENDOR_EVT_EFF,         \
-    .bt_max_sync_conn = CONFIG_BTDM_CTRL_BR_EDR_MAX_SYNC_CONN_EFF,         \
+    .bt_max_sync_conn = 2,         \
     .ble_sca = CONFIG_BTDM_BLE_SLEEP_CLOCK_ACCURACY_INDEX_EFF,             \
     .pcm_role = CONFIG_BTDM_CTRL_PCM_ROLE_EFF,                             \
     .pcm_polar = CONFIG_BTDM_CTRL_PCM_POLAR_EFF,                           \
     .hli = BTDM_CTRL_HLI,                                                  \
     .magic = ESP_BT_CONTROLLER_CONFIG_MAGIC_VAL,                           \
 };
+    //.bt_max_acl_conn = CONFIG_BTDM_CTRL_BR_EDR_MAX_ACL_CONN_EFF,           
 
 #else
 #define BT_CONTROLLER_INIT_CONFIG_DEFAULT() {0}; _Static_assert(0, "please enable bluetooth in menuconfig to use bt.h");
