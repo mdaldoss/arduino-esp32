@@ -1247,7 +1247,7 @@ bool BluetoothSerial::connect(int linkid)
         }
         return false;
     } else if (remote_nodes[linkid]._remote_name[0]) {
-       // disconnect(linkid);
+        disconnect(linkid);
         log_i("master : remoteName");
         // will resolve name to address first - it may take a while
 #ifdef ESP_IDF_VERSION_MAJOR
