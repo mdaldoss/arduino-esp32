@@ -234,7 +234,7 @@ static bool _spp_send_buffer(uint32_t handle){
             log_i("SPP Client Gone!");
             return false;
         }
-        log_v("SPP Write %u, handle %d", _spp_tx_buffer_len, handle);
+        log_v("SPP Write len %u, handle %d", _spp_tx_buffer_len, handle);
         esp_err_t err = esp_spp_write(handle, _spp_tx_buffer_len, _spp_tx_buffer);
         if(err != ESP_OK){
             log_e("SPP Write Failed! [0x%X]", err);
@@ -270,7 +270,6 @@ static void _spp_tx_task(void * arg){
                 else{
                     log_i("0: _spp_tx_buffer_len %d", _spp_tx_buffer_len);
                 }
-                break;
             }
             prev_handle = packet->handle;
             if(packet->len <= (SPP_TX_MAX - _spp_tx_buffer_len)){
@@ -318,6 +317,8 @@ static void _spp_tx_task(void * arg){
             log_e("Something went horribly wrong");
         }
     }
+    log_e("PATATRACKK");
+
     vTaskDelete(NULL);
     _spp_task_handle = NULL;
 }
