@@ -61,6 +61,8 @@ static boolean secondConnectionAttempt;
 static esp_spp_cb_t * custom_spp_callback = NULL;
 static BluetoothSerialDataCb custom_data_callback = NULL;
 static ConnectionClosedCb custom_connection_close_callback = NULL;
+static ServerConnectionOpenCb custom_server_connection_callback = NULL;
+
 static esp_bd_addr_t current_bd_addr;
 static ConfirmRequestCb confirm_request_callback = NULL;
 static AuthCompleteCb auth_complete_callback = NULL;
@@ -360,6 +362,9 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
             }
             xEventGroupClearBits(_spp_event_group_l[current_client_id], SPP_DISCONNECTED); // linkid = 0 for server mode (acceptor)
             xEventGroupSetBits(_spp_event_group_l[current_client_id], SPP_CONNECTED);
+            if(custom_server_connection_callback){
+                custom_server_connection_callback(param->srv_open.status == ESP_SPP_SUCCESS);
+            }
         } else {
             log_e("ESP_SPP_SRV_OPEN_EVT Failed!, status:%d", param->srv_open.status);
         }
@@ -1109,6 +1114,10 @@ void BluetoothSerial::onData(BluetoothSerialDataCb cb){
 /** \brief on closed connection call callback function passing linkid as argument */
 void BluetoothSerial::onClosedConnection(ConnectionClosedCb cb){
     custom_connection_close_callback = cb;
+}
+/** \brief on a client connection -> call callback function passing linkid as argument */
+void BluetoothSerial::onServerConnectionOpen(ServerConnectionOpenCb cb){
+    custom_server_connection_callback = cb;
 }
 
 //Simple Secure Pairing
