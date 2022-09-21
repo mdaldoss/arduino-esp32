@@ -31,6 +31,7 @@ typedef std::function<void(const uint8_t *buffer, size_t size)> BluetoothSerialD
 typedef std::function<void(uint32_t num_val)> ConfirmRequestCb;
 typedef std::function<void(boolean success)> AuthCompleteCb;
 typedef std::function<void(BTAdvertisedDevice* pAdvertisedDevice)> BTAdvertisedDeviceCb;
+typedef std::function<void(uint32_t num_val)> ConnectionClosedCb;
 
 class BluetoothSerial: public Stream
 {
@@ -63,6 +64,7 @@ class BluetoothSerial: public Stream
         void onConfirmRequest(ConfirmRequestCb cb);
         void onAuthComplete(AuthCompleteCb cb);
         void confirmReply(boolean confirm);
+        void onClosedConnection(ConnectionClosedCb cb);
 
         void enableSSP();
         bool setPin(const char *pin);
