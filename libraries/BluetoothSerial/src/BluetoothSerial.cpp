@@ -1363,9 +1363,11 @@ BTScanResults* BluetoothSerial::discover(int timeoutMs) {
     log_i("discover::disconnect");
     for (int i = 0; i < MAX_BT_ACCEPTORS; i++)
     {
-        disconnect(i);
+        if(!this->isClosed(i)){
+            log_e("Disconnect BT devices before running discovery. Otherwise esp bt api will not work.");    
+            return NULL;
+        }
     }
-    log_i("disconnected devices.\n Running discovery with timeout: %d ms", timeoutMs);
     // will resolve name to address first - it may take a while
     //esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
     if (esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, timeout, 0) == ESP_OK) {
@@ -1391,7 +1393,10 @@ bool BluetoothSerial::discoverAsync(BTAdvertisedDeviceCb cb, int timeoutMs) {
     int timeout = timeoutMs / INQ_TIME;
     for (int i = 0; i < MAX_BT_ACCEPTORS; i++)
     {
-        disconnect(i);
+        if(!this->isClosed(i)){
+            log_e("Disconnect BT devices before running discovery. Otherwise esp bt api will not work.");    
+            return NULL;
+        }
     }
     advertisedDeviceCb = cb;
     log_i("discovering");
