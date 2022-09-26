@@ -363,7 +363,7 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
             xEventGroupClearBits(_spp_event_group_l[current_client_id], SPP_DISCONNECTED); // linkid = 0 for server mode (acceptor)
             xEventGroupSetBits(_spp_event_group_l[current_client_id], SPP_CONNECTED);
             if(custom_server_connection_callback){
-                custom_server_connection_callback(param->srv_open.status == ESP_SPP_SUCCESS);
+                custom_server_connection_callback(param->srv_open.rem_bda);
             }
         } else {
             log_e("ESP_SPP_SRV_OPEN_EVT Failed!, status:%d", param->srv_open.status);
@@ -766,10 +766,27 @@ static bool _init_bt(const char *deviceName)
         }
     }
 
+    //ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_BLE));
+
     if (!btStarted() && !btStart()){
         log_e("initialize controller failed");
         return false;
     }
+
+    // Marco
+    // ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_BLE));
+    // esp_err_t ret = ESP_OK;
+    // esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
+    // if ((ret = esp_bt_controller_init(&bt_cfg)) != ESP_OK) {
+    //     ESP_LOGE(SPP_TAG, "%s initialize controller failed: %s\n", __func__, esp_err_to_name(ret));
+    //     return;
+    //}
+    // deinit marco
+
+    // if ((ret = esp_bt_controller_enable(ESP_BT_MODE_CLASSIC_BT)) != ESP_OK) {
+    //     ESP_LOGE(SPP_TAG, "%s enable controller failed: %s\n", __func__, esp_err_to_name(ret));
+    //     return;
+    // }
 
     esp_bluedroid_status_t bt_state = esp_bluedroid_get_status();
     if (bt_state == ESP_BLUEDROID_STATUS_UNINITIALIZED){
@@ -1409,7 +1426,8 @@ bool BluetoothSerial::discoverAsync(BTAdvertisedDeviceCb cb, int timeoutMs) {
 
 /** @brief      Stops the asynchronous discovery and clears the callback */
 void BluetoothSerial::discoverAsyncStop() {
-    esp_bt_gap_cancel_discovery();
+    static esp_err_t res = esp_bt_gap_cancel_discovery();
+    if (res!=ESP_OK) log_e("Error. BT Discovery Stop Result %d, code %s", res, esp_err_to_name(res));
     advertisedDeviceCb = nullptr;
 }
 

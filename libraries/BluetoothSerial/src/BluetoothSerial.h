@@ -32,7 +32,7 @@ typedef std::function<void(uint32_t num_val)> ConfirmRequestCb;
 typedef std::function<void(boolean success)> AuthCompleteCb;
 typedef std::function<void(BTAdvertisedDevice* pAdvertisedDevice)> BTAdvertisedDeviceCb;
 typedef std::function<void(uint32_t num_val)> ConnectionClosedCb;
-typedef std::function<void(boolean success)> ServerConnectionOpenCb;
+typedef std::function<void(uint8_t * rem_bda)> ServerConnectionOpenCb;
 
 class BluetoothSerial: public Stream
 {
