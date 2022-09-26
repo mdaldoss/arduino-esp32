@@ -60,6 +60,9 @@ static EventGroupHandle_t _bt_event_group = NULL;
 static boolean secondConnectionAttempt;
 static esp_spp_cb_t * custom_spp_callback = NULL;
 static BluetoothSerialDataCb custom_data_callback = NULL;
+static ConnectionClosedCb custom_connection_close_callback = NULL;
+static ServerConnectionOpenCb custom_server_connection_callback = NULL;
+
 static esp_bd_addr_t current_bd_addr;
 static ConfirmRequestCb confirm_request_callback = NULL;
 static AuthCompleteCb auth_complete_callback = NULL;
@@ -212,7 +215,7 @@ static esp_err_t _spp_queue_packet(uint32_t handle, uint8_t *data, size_t len){
     }
     packet->len = len;
     packet->handle = handle;
-    //log_i("_spp_queue_packet len: %d, handle: %d", len, handle);
+    log_i("_spp_queue_packet len: %d, handle: %d", len, handle);
     memcpy(packet->data, data, len);
     if (!_spp_tx_queue || xQueueSend(_spp_tx_queue, &packet, SPP_TX_QUEUE_TIMEOUT) != pdPASS) {
         log_e("SPP TX Queue Send Failed!");
@@ -234,7 +237,7 @@ static bool _spp_send_buffer(uint32_t handle){
             log_i("SPP Client Gone!");
             return false;
         }
-        log_v("SPP Write %u", _spp_tx_buffer_len);
+        log_v("SPP Write len %u, handle %d", _spp_tx_buffer_len, handle);
         esp_err_t err = esp_spp_write(handle, _spp_tx_buffer_len, _spp_tx_buffer);
         if(err != ESP_OK){
             log_e("SPP Write Failed! [0x%X]", err);
@@ -264,11 +267,16 @@ static void _spp_tx_task(void * arg){
             if (prev_handle!=0 && packet->handle != prev_handle){
                 // flush memory
                 log_i("_spp_tx_task Changing packet destination, sending tx queue to handle %d. New handle: %d ",prev_handle, handle);
-                _spp_send_buffer(prev_handle);
-                break;
+                if(_spp_tx_buffer_len>0){
+                    _spp_send_buffer(prev_handle);
+                }
+                else{
+                    log_i("0: _spp_tx_buffer_len %d", _spp_tx_buffer_len);
+                }
             }
             prev_handle = packet->handle;
             if(packet->len <= (SPP_TX_MAX - _spp_tx_buffer_len)){
+                log_i("packet->len <= SPP_TX_MAX - _spp_tx_buffer_len"); 
                 memcpy(_spp_tx_buffer+_spp_tx_buffer_len, packet->data, packet->len);
                 _spp_tx_buffer_len+=packet->len;
                 free(packet);
@@ -312,6 +320,8 @@ static void _spp_tx_task(void * arg){
             log_e("Something went horribly wrong");
         }
     }
+    log_e("PATATRACKK");
+
     vTaskDelete(NULL);
     _spp_task_handle = NULL;
 }
@@ -352,6 +362,9 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
             }
             xEventGroupClearBits(_spp_event_group_l[current_client_id], SPP_DISCONNECTED); // linkid = 0 for server mode (acceptor)
             xEventGroupSetBits(_spp_event_group_l[current_client_id], SPP_CONNECTED);
+            if(custom_server_connection_callback){
+                custom_server_connection_callback(param->srv_open.rem_bda);
+            }
         } else {
             log_e("ESP_SPP_SRV_OPEN_EVT Failed!, status:%d", param->srv_open.status);
         }
@@ -369,6 +382,9 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
                 xEventGroupSetBits(_spp_event_group_l[linkid], SPP_DISCONNECTED);
                 xEventGroupSetBits(_spp_event_group, SPP_CONGESTED);
                 xEventGroupSetBits(_spp_event_group_l[linkid], SPP_CLOSED);
+                if (custom_connection_close_callback){
+                    custom_connection_close_callback(linkid);
+                }
             }        
             xEventGroupClearBits(_spp_event_group_l[linkid], SPP_CONNECTED);
         } else {
@@ -436,7 +452,7 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
 #endif
                     xEventGroupClearBits(_spp_event_group_l[current_client_id], SPP_CLOSED);
                     if(esp_spp_connect(_sec_mask, _role, param->disc_comp.scn[0], remote_nodes[current_client_id]._peer_bd_addr) != ESP_OK) {
-                        log_e("ESP_SPP_DISCOVERY_COMP_EVT connect failed");
+                        log_e("ESP_SPP_DISCOVERY_COMP_EVT connect failed linkid %d",current_client_id);
                         xEventGroupSetBits(_spp_event_group_l[current_client_id], SPP_CLOSED);
                     }
                 } else {
@@ -488,10 +504,6 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
         break;
     }
     if(custom_spp_callback)(*custom_spp_callback)(event, param);
-}
-
-void BluetoothSerial::onData(BluetoothSerialDataCb cb){
-    custom_data_callback = cb;
 }
 
 static void esp_bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
@@ -754,10 +766,27 @@ static bool _init_bt(const char *deviceName)
         }
     }
 
+    //ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_BLE));
+
     if (!btStarted() && !btStart()){
         log_e("initialize controller failed");
         return false;
     }
+
+    // Marco
+    // ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_BLE));
+    // esp_err_t ret = ESP_OK;
+    // esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
+    // if ((ret = esp_bt_controller_init(&bt_cfg)) != ESP_OK) {
+    //     ESP_LOGE(SPP_TAG, "%s initialize controller failed: %s\n", __func__, esp_err_to_name(ret));
+    //     return;
+    //}
+    // deinit marco
+
+    // if ((ret = esp_bt_controller_enable(ESP_BT_MODE_CLASSIC_BT)) != ESP_OK) {
+    //     ESP_LOGE(SPP_TAG, "%s enable controller failed: %s\n", __func__, esp_err_to_name(ret));
+    //     return;
+    // }
 
     esp_bluedroid_status_t bt_state = esp_bluedroid_get_status();
     if (bt_state == ESP_BLUEDROID_STATUS_UNINITIALIZED){
@@ -1096,6 +1125,18 @@ esp_err_t BluetoothSerial::register_callback(esp_spp_cb_t * callback)
     return ESP_OK;
 }
 
+void BluetoothSerial::onData(BluetoothSerialDataCb cb){
+    custom_data_callback = cb;
+}
+/** \brief on closed connection call callback function passing linkid as argument */
+void BluetoothSerial::onClosedConnection(ConnectionClosedCb cb){
+    custom_connection_close_callback = cb;
+}
+/** \brief on a client connection -> call callback function passing linkid as argument */
+void BluetoothSerial::onServerConnectionOpen(ServerConnectionOpenCb cb){
+    custom_server_connection_callback = cb;
+}
+
 //Simple Secure Pairing
 void BluetoothSerial::enableSSP() {
     _enableSSP = true;
@@ -1339,9 +1380,11 @@ BTScanResults* BluetoothSerial::discover(int timeoutMs) {
     log_i("discover::disconnect");
     for (int i = 0; i < MAX_BT_ACCEPTORS; i++)
     {
-        disconnect(i);
+        if(!this->isClosed(i)){
+            log_e("Disconnect BT devices before running discovery. Otherwise esp bt api will not work.");    
+            return NULL;
+        }
     }
-    log_i("disconnected devices.\n Running discovery with timeout: %d ms", timeoutMs);
     // will resolve name to address first - it may take a while
     //esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
     if (esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, timeout, 0) == ESP_OK) {
@@ -1367,7 +1410,10 @@ bool BluetoothSerial::discoverAsync(BTAdvertisedDeviceCb cb, int timeoutMs) {
     int timeout = timeoutMs / INQ_TIME;
     for (int i = 0; i < MAX_BT_ACCEPTORS; i++)
     {
-        disconnect(i);
+        if(!this->isClosed(i)){
+            log_e("Disconnect BT devices before running discovery. Otherwise esp bt api will not work.");    
+            return NULL;
+        }
     }
     advertisedDeviceCb = cb;
     log_i("discovering");
@@ -1380,7 +1426,8 @@ bool BluetoothSerial::discoverAsync(BTAdvertisedDeviceCb cb, int timeoutMs) {
 
 /** @brief      Stops the asynchronous discovery and clears the callback */
 void BluetoothSerial::discoverAsyncStop() {
-    esp_bt_gap_cancel_discovery();
+    static esp_err_t res = esp_bt_gap_cancel_discovery();
+    if (res!=ESP_OK) log_e("Error. BT Discovery Stop Result %d, code %s", res, esp_err_to_name(res));
     advertisedDeviceCb = nullptr;
 }
 

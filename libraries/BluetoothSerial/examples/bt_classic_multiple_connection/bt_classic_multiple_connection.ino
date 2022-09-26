@@ -13,9 +13,8 @@ Example Software to test a simultaneous connection with 2 Bluetooth Classic (SPP
 
 // Bluetooth definition Undboning
 #define REMOVE_BONDED_DEVICES 1 // <- Set to 0 to view all bonded devices addresses, set to 1 to remove
-#define PAIR_MAX_DEVICES 20
+#define PAIR_MAX_DEVICES 20 
 
-uint8_t pairedDeviceBtAddr[PAIR_MAX_DEVICES][6];
 char bda_str[18];
 
 BluetoothSerial SerialBT;
@@ -29,12 +28,9 @@ int tdelay = millis() - prev;
 /****  User definitions *************/
 
 // Bluetooth PIN
-const char * BT_PIN = "7290";
-esp_spp_sec_t sec_mask=ESP_SPP_SEC_ENCRYPT|ESP_SPP_SEC_AUTHENTICATE; // to request pincode confirmation
-esp_spp_role_t role=ESP_SPP_ROLE_MASTER;
+const char * BT_PIN = "1234"; // Pin
 
-
-// **** Put here your mac address ***
+// **** Put here the node mac address ***
 uint8_t addr_trg1[6] = {0x80,0x4b,0x50,0xa8,0x1d,0x1d}; 
 uint8_t addr_trg2[6] = {0x84,0xb4,0xdb,0xe3,0x96,0x62};
 
@@ -128,57 +124,26 @@ void setup() {
     Serial.print("Stopping discoverAsync... ");
     SerialBT.discoverAsyncStop();
 
-
-    // Discovering channels
-    Serial.println("Starting Discovering BT-SPP server channels...");
-    std::map<int,std::string> channels_dev1=SerialBT.getChannels(1, DEV1);
-    std::map<int,std::string> channels_dev2=SerialBT.getChannels(2, DEV2);
-
     // Connecting first device
-    connected = SerialBT.connect(DEV1, 1, channels_dev1.begin()->first, sec_mask, role);
+    connected = SerialBT.connect(DEV1, 1);
     if (connected) {
         Serial.println("Connected DEV1!");
     } else {
         Serial.println("DEV1 not connected...");
     }
-        delay(500);
 
-    Serial.println("Disconnecting DEV1...");
-
-    // Disconnecting first device
-    connected = SerialBT.disconnect(1);
-    if (connected) {
-        Serial.println("DEV1 disconnected!");
-    } else {
-        Serial.println("DEV1 still connected...");
-    }
     delay(500);
 
     // Connecting second device
-    connected =  SerialBT.connect(DEV2, 2, channels_dev2.begin()->first, sec_mask, role);
+    connected =  SerialBT.connect(DEV2, 2);
 
     if (connected) {
             Serial.println("Connected DEV2!");
         } else {
             Serial.println("DEV2 not connected...");
         }
-
-    // Reconnecting first device ->> HERE GIVES ERROR <<<
-    delay(500);
-    connected = SerialBT.connect(DEV1, 1, channels_dev1.begin()->first, sec_mask, role);
-
-    int connection_retry = 10;
-    while (!connected && connection_retry--) {
-        connected = SerialBT.connect(DEV1, 1, channels_dev1.begin()->first, sec_mask, role);
-        if (connected) {
-            Serial.println("Reconnected DEV1! - Simultaneus connection DONE!");
-        } else {
-            Serial.println("DEV1 not reconnected... FAIL");
-        }
-        delay(500);
-    }
     
-    
+
     delay(2000);
 }
 
@@ -195,6 +160,8 @@ void loop() {
 
     // waiting for rx
     prev = millis();
+
+    // SerialBT.available(1) // the argument specify which is the node_id to wait for data
     while (!SerialBT.available(1)) {
         ;
     }
